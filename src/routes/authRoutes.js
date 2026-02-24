@@ -1,0 +1,165 @@
+import express from "express";
+import { body } from "express-validator";
+import {
+  login,
+  refreshAccessToken,
+  logout,
+  getMe,
+  updateProfile,
+  changePassword,
+  forgotPassword,
+  resetPassword,
+  registerMarketingManager,
+} from "../controllers/authController.js";
+import { protect } from "../middlewares/auth.js";
+import {
+  authLimiter,
+  passwordResetLimiter,
+} from "../middlewares/rateLimiter.js";
+import { validate, commonValidations } from "../utils/validators.js";
+
+const router = express.Router();
+
+/**
+ * @route   POST /api/auth/login
+ * @desc    Login user
+ * @access  Public
+ */
+router.post(
+  "/login",
+  authLimiter,
+  [
+    commonValidations.email(),
+    body("password").notEmpty().withMessage("Password is required"),
+    validate,
+  ],
+  login,
+);
+
+/**
+ * @route   POST /api/auth/register-marketing-manager
+ * @desc    Register a marketing manager account
+ * @access  Public
+ */
+router.post(
+  "/register-marketing-manager",
+  authLimiter,
+  [
+    body("name")
+      .trim()
+      .notEmpty()
+      .withMessage("Name is required")
+      .isLength({ min: 2, max: 100 })
+      .withMessage("Name must be 2-100 characters"),
+    commonValidations.email(),
+    commonValidations.password(),
+    commonValidations.phone("phone"),
+    validate,
+  ],
+  registerMarketingManager,
+);
+
+/**
+ * @route   POST /api/auth/refresh-token
+ * @desc    Refresh access token
+ * @access  Public
+ */
+router.post(
+  "/refresh-token",
+  [
+    body("refreshToken").notEmpty().withMessage("Refresh token is required"),
+    validate,
+  ],
+  refreshAccessToken,
+);
+
+/**
+ * @route   POST /api/auth/logout
+ * @desc    Logout user
+ * @access  Private
+ */
+router.post("/logout", protect, logout);
+
+/**
+ * @route   GET /api/auth/me
+ * @desc    Get current user profile
+ * @access  Private
+ */
+router.get("/me", protect, getMe);
+
+/**
+ * @route   PUT /api/auth/me
+ * @desc    Update current user profile
+ * @access  Private
+ */
+router.put(
+  "/me",
+  protect,
+  [
+    body("name")
+      .optional()
+      .trim()
+      .isLength({ min: 2, max: 100 })
+      .withMessage("Name must be 2-100 characters"),
+    commonValidations.phone("phone"),
+    validate,
+  ],
+  updateProfile,
+);
+
+/**
+ * @route   PUT /api/auth/change-password
+ * @desc    Change password
+ * @access  Private
+ */
+router.put(
+  "/change-password",
+  protect,
+  [
+    body("currentPassword")
+      .notEmpty()
+      .withMessage("Current password is required"),
+    commonValidations.password("newPassword"),
+    body("confirmPassword")
+      .notEmpty()
+      .withMessage("Confirm password is required")
+      .custom((value, { req }) => value === req.body.newPassword)
+      .withMessage("Passwords do not match"),
+    validate,
+  ],
+  changePassword,
+);
+
+/**
+ * @route   POST /api/auth/forgot-password
+ * @desc    Request password reset
+ * @access  Public
+ */
+router.post(
+  "/forgot-password",
+  passwordResetLimiter,
+  [commonValidations.email(), validate],
+  forgotPassword,
+);
+
+/**
+ * @route   POST /api/auth/reset-password/:token
+ * @desc    Reset password
+ * @access  Public
+ */
+router.post(
+  "/reset-password/:token",
+  passwordResetLimiter,
+  [
+    commonValidations.password("password"),
+    body("confirmPassword")
+      .notEmpty()
+      .withMessage("Confirm password is required")
+      .custom((value, { req }) => value === req.body.password)
+      .withMessage("Passwords do not match"),
+    validate,
+  ],
+  resetPassword,
+);
+
+export default router;
