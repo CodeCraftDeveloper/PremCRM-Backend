@@ -3,6 +3,9 @@ import Remark from "../models/Remark.js";
 import Event from "../models/Event.js";
 import User from "../models/User.js";
 import ActivityLog from "../models/ActivityLog.js";
+import fs from "fs/promises";
+import path from "path";
+import crypto from "crypto";
 import {
   ApiError,
   asyncHandler,
@@ -16,6 +19,39 @@ import {
 import logger from "../utils/logger.js";
 
 const normalizePhone = (phone = "") => String(phone).replace(/\D/g, "");
+const isS3Configured = () =>
+  Boolean(
+    process.env.AWS_REGION &&
+      process.env.AWS_ACCESS_KEY_ID &&
+      process.env.AWS_SECRET_ACCESS_KEY &&
+      process.env.AWS_S3_BUCKET,
+  );
+
+const LOCAL_UPLOADS_DIR = path.resolve(process.cwd(), "public", "uploads");
+const LOCAL_KEY_PREFIX = "local:";
+
+const localKeyToFilePath = (key) => {
+  if (!key?.startsWith(LOCAL_KEY_PREFIX)) return null;
+  const relative = key.slice(LOCAL_KEY_PREFIX.length).replace(/^\/+/, "");
+  return path.resolve(process.cwd(), "public", relative);
+};
+
+const saveVisitingCardLocally = async (file, clientId) => {
+  const ext = path.extname(file.originalname || "") || ".jpg";
+  const filename = `${Date.now()}-${crypto.randomBytes(6).toString("hex")}${ext}`;
+  const relativeDir = path.join("uploads", "visiting-cards", String(clientId));
+  const absoluteDir = path.resolve(process.cwd(), "public", relativeDir);
+  await fs.mkdir(absoluteDir, { recursive: true });
+
+  const relativePath = path.join(relativeDir, filename).replace(/\\/g, "/");
+  const absolutePath = path.resolve(process.cwd(), "public", relativePath);
+  await fs.writeFile(absolutePath, file.buffer);
+
+  return {
+    key: `${LOCAL_KEY_PREFIX}${relativePath}`,
+    url: `/${relativePath}`,
+  };
+};
 
 const findExistingContactOwner = async ({ email, phone }) => {
   const normalizedEmail = String(email || "").trim().toLowerCase();
@@ -239,7 +275,14 @@ const getClient = asyncHandler(async (req, res, next) => {
   let visitingCardUrl = null;
   if (client.visitingCard?.key) {
     try {
-      visitingCardUrl = await getSignedFileUrl(client.visitingCard.key);
+      if (client.visitingCard.key.startsWith(LOCAL_KEY_PREFIX)) {
+        const relativePath = client.visitingCard.key
+          .slice(LOCAL_KEY_PREFIX.length)
+          .replace(/^\/+/, "");
+        visitingCardUrl = `${req.protocol}://${req.get("host")}/${relativePath}`;
+      } else {
+        visitingCardUrl = await getSignedFileUrl(client.visitingCard.key);
+      }
     } catch (error) {
       logger.warn(
         `Failed to get signed URL for visiting card: ${error.message}`,
@@ -567,19 +610,35 @@ const uploadVisitingCard = asyncHandler(async (req, res, next) => {
   // Delete old visiting card if exists
   if (client.visitingCard?.key) {
     try {
-      await deleteFromS3(client.visitingCard.key);
+      const localPath = localKeyToFilePath(client.visitingCard.key);
+      if (localPath) {
+        await fs.unlink(localPath).catch(() => {});
+      } else {
+        await deleteFromS3(client.visitingCard.key);
+      }
     } catch (error) {
       logger.warn(`Failed to delete old visiting card: ${error.message}`);
     }
   }
 
-  // Upload to S3
-  const result = await uploadToS3(
-    req.file.buffer,
-    req.file.originalname,
-    req.file.mimetype,
-    `visiting-cards/${client._id}`,
-  );
+  let result;
+  if (isS3Configured()) {
+    try {
+      result = await uploadToS3(
+        req.file.buffer,
+        req.file.originalname,
+        req.file.mimetype,
+        `visiting-cards/${client._id}`,
+      );
+    } catch (error) {
+      logger.warn(
+        `S3 upload failed for client ${client._id}. Falling back to local storage: ${error.message}`,
+      );
+      result = await saveVisitingCardLocally(req.file, client._id);
+    }
+  } else {
+    result = await saveVisitingCardLocally(req.file, client._id);
+  }
 
   // Update client
   client.visitingCard = {
