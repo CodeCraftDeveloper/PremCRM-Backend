@@ -27,11 +27,17 @@ const apiLimiter = createLimiter({
     message: "Too many requests, please try again later.",
   },
   skip: (req) => {
+    const isLiveDashboardGet =
+      req.method === "GET" &&
+      (req.originalUrl.startsWith("/api/dashboard/") ||
+        req.originalUrl.startsWith("/api/sessions/marketing/"));
+
     // Skip global limiter for health checks and auth routes
     return (
       req.path === "/health" ||
       req.originalUrl === "/api/health" ||
-      req.originalUrl.startsWith("/api/auth/")
+      req.originalUrl.startsWith("/api/auth/") ||
+      isLiveDashboardGet
     );
   },
 });
