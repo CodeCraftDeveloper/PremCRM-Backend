@@ -7,32 +7,61 @@ import { getCache, setCache } from "../config/redis.js";
 
 const CACHE_TTL = 300; // 5 minutes for dashboard data
 
+const getTenantUserIds = async (tenantId) => {
+  const users = await User.find({ tenantId }, { _id: 1 }).lean();
+  return users.map((user) => user._id);
+};
+
+const buildEventTenantScope = (tenantId, tenantUserIds = []) => ({
+  $or: [
+    { tenantId },
+    {
+      tenantId: { $exists: false },
+      createdBy: { $in: tenantUserIds },
+    },
+    {
+      tenantId: null,
+      createdBy: { $in: tenantUserIds },
+    },
+  ],
+});
+
 /**
  * @desc    Get admin dashboard data
  * @route   GET /api/dashboard/admin
  * @access  Private/Admin
  */
 const getAdminDashboard = asyncHandler(async (req, res, next) => {
+  const tenantId = req.user.tenantId;
+  const adminDashboardCacheKey = `dashboard:admin:${tenantId}`;
+  const tenantUserIds = await getTenantUserIds(tenantId);
+  const eventScope = buildEventTenantScope(tenantId, tenantUserIds);
+  const useCache = process.env.NODE_ENV === "production";
   // Try cache first
-  const cached = await getCache("dashboard:admin");
-  if (cached) {
-    return successResponse(res, cached, "Dashboard data retrieved from cache");
+  if (useCache) {
+    const cached = await getCache(adminDashboardCacheKey);
+    if (cached) {
+      return successResponse(res, cached, "Dashboard data retrieved from cache");
+    }
   }
 
   // Get overview stats
   const [totalClients, totalEvents, totalUsers, activeEvents] =
     await Promise.all([
-      Client.countDocuments({ isActive: true }),
-      Event.countDocuments(),
-      User.countDocuments({ isActive: true }),
-      Event.countDocuments({ status: { $in: ["upcoming", "active"] } }),
+      Client.countDocuments({ tenantId, isActive: true }),
+      Event.countDocuments(eventScope),
+      User.countDocuments({ tenantId, isActive: true }),
+      Event.countDocuments({
+        ...eventScope,
+        status: { $in: ["upcoming", "active"] },
+      }),
     ]);
 
   // Get client stats by status
-  const clientStats = await Client.getStats();
+  const clientStats = await Client.getStats({ tenantId });
 
   // Get recent clients
-  const recentClients = await Client.find({ isActive: true })
+  const recentClients = await Client.find({ tenantId, isActive: true })
     .sort({ createdAt: -1 })
     .limit(10)
     .populate("event", "name")
@@ -40,7 +69,7 @@ const getAdminDashboard = asyncHandler(async (req, res, next) => {
 
   // Get top performing marketing users
   const topMarketers = await Client.aggregate([
-    { $match: { isActive: true } },
+    { $match: { tenantId, isActive: true } },
     {
       $group: {
         _id: "$marketingPerson",
@@ -62,6 +91,7 @@ const getAdminDashboard = asyncHandler(async (req, res, next) => {
       },
     },
     { $unwind: "$user" },
+    { $match: { "user.tenantId": req.user.tenantId } },
     {
       $project: {
         name: "$user.name",
@@ -87,7 +117,7 @@ const getAdminDashboard = asyncHandler(async (req, res, next) => {
 
   // Get event performance
   const eventPerformance = await Client.aggregate([
-    { $match: { isActive: true } },
+    { $match: { tenantId, isActive: true } },
     {
       $group: {
         _id: "$event",
@@ -108,6 +138,7 @@ const getAdminDashboard = asyncHandler(async (req, res, next) => {
       },
     },
     { $unwind: "$event" },
+    { $match: { "event.tenantId": req.user.tenantId } },
     {
       $project: {
         name: "$event.name",
@@ -123,7 +154,7 @@ const getAdminDashboard = asyncHandler(async (req, res, next) => {
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
   const monthlyTrend = await Client.aggregate([
-    { $match: { createdAt: { $gte: sixMonthsAgo } } },
+    { $match: { tenantId, createdAt: { $gte: sixMonthsAgo } } },
     {
       $group: {
         _id: {
@@ -139,15 +170,30 @@ const getAdminDashboard = asyncHandler(async (req, res, next) => {
     { $sort: { "_id.year": 1, "_id.month": 1 } },
   ]);
 
+  const eventMonthlyTrend = await Event.aggregate([
+    { $match: { ...eventScope, createdAt: { $gte: sixMonthsAgo } } },
+    {
+      $group: {
+        _id: {
+          year: { $year: "$createdAt" },
+          month: { $month: "$createdAt" },
+        },
+        count: { $sum: 1 },
+      },
+    },
+    { $sort: { "_id.year": 1, "_id.month": 1 } },
+  ]);
+
   // Get pending follow-ups count
   const pendingFollowUps = await Client.countDocuments({
+    tenantId,
     isActive: true,
     followUpStatus: { $nin: ["converted", "lost"] },
     nextFollowUpDate: { $lte: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) },
   });
 
   // Get recent activity
-  const recentActivity = await ActivityLog.find()
+  const recentActivity = await ActivityLog.find({ tenantId })
     .sort({ createdAt: -1 })
     .limit(20)
     .populate("user", "name email avatar");
@@ -164,12 +210,15 @@ const getAdminDashboard = asyncHandler(async (req, res, next) => {
     recentClients,
     topMarketers,
     eventPerformance,
-    monthlyTrend,
+    monthlyTrend: monthlyTrend.length ? monthlyTrend : eventMonthlyTrend,
+    trendSource: monthlyTrend.length ? "clients" : "events",
     recentActivity,
   };
 
   // Cache result
-  await setCache("dashboard:admin", dashboardData, CACHE_TTL);
+  if (useCache) {
+    await setCache(adminDashboardCacheKey, dashboardData, CACHE_TTL);
+  }
 
   successResponse(res, dashboardData);
 });
@@ -180,21 +229,26 @@ const getAdminDashboard = asyncHandler(async (req, res, next) => {
  * @access  Private/Marketing
  */
 const getMarketingDashboard = asyncHandler(async (req, res, next) => {
+  const tenantId = req.user.tenantId;
   const userId = req.user._id;
+  const useCache = process.env.NODE_ENV === "production";
 
   // Try cache first
-  const cacheKey = `dashboard:marketing:${userId}`;
-  const cached = await getCache(cacheKey);
-  if (cached) {
-    return successResponse(res, cached, "Dashboard data retrieved from cache");
+  const cacheKey = `dashboard:marketing:${tenantId}:${userId}`;
+  if (useCache) {
+    const cached = await getCache(cacheKey);
+    if (cached) {
+      return successResponse(res, cached, "Dashboard data retrieved from cache");
+    }
   }
 
   // Get user's client stats
-  const clientStats = await Client.getStats({ marketingPerson: userId });
+  const clientStats = await Client.getStats({ tenantId, marketingPerson: userId });
 
   // Get my recent clients
   const myRecentClients = await Client.find({
     marketingPerson: userId,
+    tenantId,
     isActive: true,
   })
     .sort({ createdAt: -1 })
@@ -204,6 +258,7 @@ const getMarketingDashboard = asyncHandler(async (req, res, next) => {
   // Get pending follow-ups (next 7 days)
   const pendingFollowUps = await Client.find({
     marketingPerson: userId,
+    tenantId,
     isActive: true,
     followUpStatus: { $nin: ["converted", "lost"] },
     nextFollowUpDate: {
@@ -218,6 +273,7 @@ const getMarketingDashboard = asyncHandler(async (req, res, next) => {
   // Get overdue follow-ups
   const overdueFollowUps = await Client.find({
     marketingPerson: userId,
+    tenantId,
     isActive: true,
     followUpStatus: { $nin: ["converted", "lost"] },
     nextFollowUpDate: { $lt: new Date() },
@@ -227,7 +283,7 @@ const getMarketingDashboard = asyncHandler(async (req, res, next) => {
 
   // Get clients by event
   const clientsByEvent = await Client.aggregate([
-    { $match: { marketingPerson: userId, isActive: true } },
+    { $match: { tenantId, marketingPerson: userId, isActive: true } },
     {
       $group: {
         _id: "$event",
@@ -264,6 +320,7 @@ const getMarketingDashboard = asyncHandler(async (req, res, next) => {
     {
       $match: {
         marketingPerson: userId,
+        tenantId,
         createdAt: { $gte: fourWeeksAgo },
       },
     },
@@ -277,7 +334,7 @@ const getMarketingDashboard = asyncHandler(async (req, res, next) => {
   ]);
 
   // Get my recent activity
-  const myActivity = await ActivityLog.find({ user: userId })
+  const myActivity = await ActivityLog.find({ tenantId, user: userId })
     .sort({ createdAt: -1 })
     .limit(15);
 
@@ -292,7 +349,9 @@ const getMarketingDashboard = asyncHandler(async (req, res, next) => {
   };
 
   // Cache result
-  await setCache(cacheKey, dashboardData, CACHE_TTL);
+  if (useCache) {
+    await setCache(cacheKey, dashboardData, CACHE_TTL);
+  }
 
   successResponse(res, dashboardData);
 });
@@ -305,7 +364,7 @@ const getMarketingDashboard = asyncHandler(async (req, res, next) => {
 const getAnalytics = asyncHandler(async (req, res, next) => {
   const { startDate, endDate, eventId, marketerId } = req.query;
 
-  const matchStage = { isActive: true };
+  const matchStage = { tenantId: req.user.tenantId, isActive: true };
 
   if (startDate || endDate) {
     matchStage.createdAt = {};

@@ -138,6 +138,68 @@ const getRedisClient = () => redisClient;
  */
 const isRedisConnected = () => isConnected;
 
+// Backward-compatible default export used across the codebase.
+// Maps legacy ioredis-style methods to node-redis v4 methods.
+const redis = {
+  async get(key) {
+    if (!isConnected || !redisClient) return null;
+    return redisClient.get(key);
+  },
+  async set(key, value) {
+    if (!isConnected || !redisClient) return null;
+    return redisClient.set(key, String(value));
+  },
+  async setex(key, ttl, value) {
+    if (!isConnected || !redisClient) return null;
+    return redisClient.setEx(key, ttl, String(value));
+  },
+  async expire(key, ttl) {
+    if (!isConnected || !redisClient) return 0;
+    return redisClient.expire(key, ttl);
+  },
+  async del(...keys) {
+    if (!isConnected || !redisClient) return 0;
+    return redisClient.del(keys);
+  },
+  async keys(pattern) {
+    if (!isConnected || !redisClient) return [];
+    return redisClient.keys(pattern);
+  },
+  async incr(key) {
+    if (!isConnected || !redisClient) return null;
+    return redisClient.incr(key);
+  },
+  async sadd(key, ...members) {
+    if (!isConnected || !redisClient) return 0;
+    return redisClient.sAdd(key, members);
+  },
+  async srem(key, ...members) {
+    if (!isConnected || !redisClient) return 0;
+    return redisClient.sRem(key, members);
+  },
+  async smembers(key) {
+    if (!isConnected || !redisClient) return [];
+    return redisClient.sMembers(key);
+  },
+  async zadd(key, ...args) {
+    if (!isConnected || !redisClient) return 0;
+    const entries = [];
+    for (let i = 0; i < args.length; i += 2) {
+      const score = Number(args[i]);
+      const value = args[i + 1];
+      if (!Number.isNaN(score) && value !== undefined) {
+        entries.push({ score, value: String(value) });
+      }
+    }
+    if (entries.length === 0) return 0;
+    return redisClient.zAdd(key, entries);
+  },
+  async zcount(key, min, max) {
+    if (!isConnected || !redisClient) return 0;
+    return redisClient.zCount(key, min, max);
+  },
+};
+
 export {
   initRedis,
   getCache,
@@ -147,3 +209,5 @@ export {
   getRedisClient,
   isRedisConnected,
 };
+
+export default redis;

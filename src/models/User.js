@@ -3,6 +3,12 @@ import bcrypt from "bcryptjs";
 
 const userSchema = new mongoose.Schema(
   {
+    tenantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Tenant",
+      required: true,
+      index: true,
+    },
     name: {
       type: String,
       required: [true, "Name is required"],
@@ -12,10 +18,10 @@ const userSchema = new mongoose.Schema(
     email: {
       type: String,
       required: [true, "Email is required"],
-      unique: true,
       lowercase: true,
       trim: true,
       match: [/^\S+@\S+\.\S+$/, "Please enter a valid email"],
+      index: true,
     },
     password: {
       type: String,
@@ -25,8 +31,8 @@ const userSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ["admin", "marketing"],
-      default: "marketing",
+      enum: ["superadmin", "admin", "marketing", "user"],
+      default: "user",
     },
     phone: {
       type: String,
@@ -39,6 +45,21 @@ const userSchema = new mongoose.Schema(
     isActive: {
       type: Boolean,
       default: true,
+      index: true,
+    },
+    approvalStatus: {
+      type: String,
+      enum: ["pending", "approved", "rejected"],
+      default: "approved",
+    },
+    approvedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    approvedAt: {
+      type: Date,
+      default: null,
     },
     lastLogin: {
       type: Date,
@@ -76,9 +97,18 @@ const userSchema = new mongoose.Schema(
   },
 );
 
-// Indexes for performance (email index created by unique: true)
-userSchema.index({ role: 1, isActive: 1 });
-userSchema.index({ createdAt: -1 });
+// Indexes for performance
+userSchema.index({ tenantId: 1, email: 1 }, { unique: true });
+userSchema.index({ tenantId: 1, role: 1, isActive: 1 });
+userSchema.index(
+  { role: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { role: "superadmin" },
+  },
+);
+userSchema.index({ tenantId: 1, approvalStatus: 1 });
+userSchema.index({ tenantId: 1, createdAt: -1 });
 
 // Virtual for full name
 userSchema.virtual("clientCount", {

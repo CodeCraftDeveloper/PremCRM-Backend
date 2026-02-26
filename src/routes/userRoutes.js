@@ -8,6 +8,9 @@ import {
   deleteUser,
   resetUserPassword,
   getMarketingUsers,
+  approveUser,
+  rejectUser,
+  getPendingApprovals,
 } from "../controllers/userController.js";
 import { protect, adminOnly } from "../middlewares/auth.js";
 import { validate, commonValidations } from "../utils/validators.js";
@@ -23,6 +26,37 @@ router.use(protect);
  * @access  Private
  */
 router.get("/marketing", getMarketingUsers);
+
+/**
+ * @route   GET /api/users/pending-approvals
+ * @desc    Get pending approval users
+ * @access  Private/Admin
+ */
+router.get("/pending-approvals", adminOnly, getPendingApprovals);
+
+/**
+ * @route   PUT /api/users/:id/approve
+ * @desc    Approve pending user registration
+ * @access  Private/Admin
+ */
+router.put(
+  "/:id/approve",
+  adminOnly,
+  [commonValidations.mongoId("id"), validate],
+  approveUser,
+);
+
+/**
+ * @route   PUT /api/users/:id/reject
+ * @desc    Reject pending user registration
+ * @access  Private/Admin
+ */
+router.put(
+  "/:id/reject",
+  adminOnly,
+  [commonValidations.mongoId("id"), validate],
+  rejectUser,
+);
 
 /**
  * @route   GET /api/users

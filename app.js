@@ -3,6 +3,7 @@ import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
 import compression from "compression";
+import cookieParser from "cookie-parser";
 import mongoSanitize from "express-mongo-sanitize";
 import hpp from "hpp";
 
@@ -16,6 +17,11 @@ import {
   dashboardRoutes,
   exportRoutes,
   sessionRoutes,
+  publicLeadRoutes,
+  leadRoutes,
+  websiteRoutes,
+  tenantRoutes,
+  superAdminRoutes,
 } from "./src/routes/index.js";
 
 // Import middlewares
@@ -27,6 +33,24 @@ import logger from "./src/utils/logger.js";
 
 // Initialize express app
 const app = express();
+const normalizeOrigin = (value = "") =>
+  value
+    .trim()
+    .replace(/^["']|["']$/g, "")
+    .replace(/\/+$/, "")
+    .toLowerCase();
+
+const envOrigins = (process.env.CORS_ORIGIN || "http://localhost:5173")
+  .split(",")
+  .map((origin) => normalizeOrigin(origin))
+  .filter(Boolean);
+
+const devOrigins =
+  process.env.NODE_ENV === "development"
+    ? ["http://localhost:5173", "http://localhost:3000"].map(normalizeOrigin)
+    : [];
+
+const allowedOrigins = [...new Set([...envOrigins, ...devOrigins])];
 
 // =====================
 // Security Middlewares
@@ -41,11 +65,47 @@ app.use(
 
 // Enable CORS
 app.use(
-  cors({
-    origin: process.env.CORS_ORIGIN || "http://localhost:5173",
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  cors((req, callback) => {
+    const isPublicApiRoute = req.path?.startsWith("/api/public/");
+
+    const baseOptions = {
+      methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+      allowedHeaders: [
+        "Content-Type",
+        "Authorization",
+        "X-Requested-With",
+        "X-Request-Id",
+        "X-CSRF-Token",
+        "x-api-key",
+      ],
+      exposedHeaders: [
+        "X-RateLimit-Limit",
+        "X-RateLimit-Remaining",
+        "X-RateLimit-Reset",
+      ],
+    };
+
+    // Public lead API: allow all browser origins; API key still protects access.
+    if (isPublicApiRoute) {
+      return callback(null, {
+        ...baseOptions,
+        origin: true,
+        credentials: false,
+      });
+    }
+
+    return callback(null, {
+      ...baseOptions,
+      credentials: true,
+      origin: (origin, originCallback) => {
+        if (!origin) return originCallback(null, true);
+        const normalizedOrigin = normalizeOrigin(origin);
+        if (allowedOrigins.includes(normalizedOrigin)) {
+          return originCallback(null, true);
+        }
+        return originCallback(new Error(`CORS blocked for origin: ${origin}`));
+      },
+    });
   }),
 );
 
@@ -73,6 +133,7 @@ app.use("/api/", apiLimiter);
 // Body parser
 app.use(express.json({ limit: "10kb" }));
 app.use(express.urlencoded({ extended: true, limit: "10kb" }));
+app.use(cookieParser());
 
 // Compression
 app.use(compression());
@@ -118,6 +179,11 @@ app.use("/api/remarks", remarkRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/export", exportRoutes);
 app.use("/api/sessions", sessionRoutes);
+app.use("/api/public", publicLeadRoutes);
+app.use("/api/leads", leadRoutes);
+app.use("/api/websites", websiteRoutes);
+app.use("/api/tenants", tenantRoutes);
+app.use("/api/superadmin", superAdminRoutes);
 
 // =====================
 // API Documentation
@@ -186,6 +252,43 @@ app.get("/api", (req, res) => {
           "Get marketing users performance metrics (Admin)",
         "GET /api/sessions/marketing/:userId/report":
           "Get detailed user report (Admin)",
+      },
+      "public-leads": {
+        "POST /api/public/lead": "Submit lead from external website",
+        "GET /api/public/health": "Health check endpoint",
+        "GET /api/public/docs": "API documentation",
+      },
+      leads: {
+        "GET /api/leads": "Get all leads with filters",
+        "POST /api/leads": "Create lead manually (Admin/Marketing)",
+        "GET /api/leads/:id": "Get lead details",
+        "PUT /api/leads/:id": "Update lead (Admin/Marketing)",
+        "PUT /api/leads/:id/status": "Update lead status",
+        "PUT /api/leads/:id/assign": "Assign lead to user (Admin)",
+        "PUT /api/leads/:id/mark-duplicate": "Mark lead as duplicate (Admin)",
+        "POST /api/leads/:id/merge/:duplicateId":
+          "Merge duplicate leads (Admin)",
+        "DELETE /api/leads/:id": "Delete lead (Admin)",
+        "GET /api/leads/unassigned/count": "Count unassigned leads",
+        "POST /api/leads/auto-assign":
+          "Auto-assign all unassigned leads (Admin)",
+        "GET /api/leads/analytics/dashboard": "Get lead analytics",
+      },
+      websites: {
+        "GET /api/websites": "Get all websites",
+        "POST /api/websites": "Create website (Admin)",
+        "GET /api/websites/:id": "Get website details",
+        "PUT /api/websites/:id": "Update website (Admin)",
+        "DELETE /api/websites/:id": "Delete website (Admin)",
+        "POST /api/websites/:id/regenerate-key": "Regenerate API key (Admin)",
+        "GET /api/websites/:id/stats": "Get website statistics",
+        "POST /api/websites/:id/test": "Test webhook connection",
+      },
+      tenants: {
+        "POST /api/tenants/bootstrap": "Create tenant + first admin",
+        "GET /api/tenants": "List tenants (admin/superadmin)",
+        "GET /api/tenants/:id": "Get tenant details",
+        "PUT /api/tenants/:id": "Update tenant settings",
       },
     },
   });

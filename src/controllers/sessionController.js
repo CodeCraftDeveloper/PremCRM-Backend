@@ -78,6 +78,7 @@ export const trackLogin = async (req, res, next) => {
 
     // Create new session
     const session = new UserSession({
+      tenantId: req.user.tenantId,
       user: userId,
       loginTime: new Date(),
       isActive: true,
@@ -108,7 +109,7 @@ export const trackLogout = async (req, res, next) => {
 
     // End active session
     const session = await UserSession.findOneAndUpdate(
-      { user: userId, isActive: true },
+      { user: userId, tenantId: req.user.tenantId, isActive: true },
       {
         isActive: false,
         logoutTime: new Date(),
@@ -146,13 +147,14 @@ export const getMarketingUsersStatus = async (req, res) => {
     const marketingUsers = await User.find({
       role: "marketing",
       isActive: true,
+      tenantId: req.user.tenantId,
     }).select("-password -refreshToken");
 
     const usersWithStatus = await Promise.all(
       marketingUsers.map(async (user) => {
         // Get current session
         const currentSession = await UserSession.findOne(
-          { user: user._id, isActive: true },
+          { user: user._id, tenantId: req.user.tenantId, isActive: true },
           {},
           { sort: { loginTime: -1 } },
         );
@@ -163,6 +165,7 @@ export const getMarketingUsersStatus = async (req, res) => {
 
         const todaySessions = await UserSession.find({
           user: user._id,
+          tenantId: req.user.tenantId,
           loginTime: { $gte: today },
         });
 
@@ -176,6 +179,7 @@ export const getMarketingUsersStatus = async (req, res) => {
         tomorrow.setDate(tomorrow.getDate() + 1);
 
         const dailyContactedUsers = await Client.countDocuments({
+          tenantId: req.user.tenantId,
           lastContactedBy: user._id,
           lastContactedDate: { $gte: today, $lt: tomorrow },
         });
@@ -238,7 +242,11 @@ export const getMarketingPerformance = async (req, res) => {
     }
 
     // Build user filter
-    const userFilter = { role: "marketing", isActive: true };
+    const userFilter = {
+      role: "marketing",
+      isActive: true,
+      tenantId: req.user.tenantId,
+    };
     if (userId) {
       userFilter._id = userId;
     }
@@ -255,19 +263,20 @@ export const getMarketingPerformance = async (req, res) => {
         tomorrow.setDate(tomorrow.getDate() + 1);
 
         // Get sessions within date range
-        const query = { user: user._id };
+        const query = { user: user._id, tenantId: req.user.tenantId };
         if (Object.keys(dateFilter).length > 0) {
           query.loginTime = dateFilter;
         }
 
         const sessions = await UserSession.find(query);
         const activeSession = await UserSession.findOne(
-          { user: user._id, isActive: true },
+          { user: user._id, tenantId: req.user.tenantId, isActive: true },
           {},
           { sort: { loginTime: -1 } },
         );
         const todaySessions = await UserSession.find({
           user: user._id,
+          tenantId: req.user.tenantId,
           loginTime: { $gte: todayStart, $lt: tomorrow },
         });
 
@@ -295,7 +304,10 @@ export const getMarketingPerformance = async (req, res) => {
 
         // Get user's tickets and clients created in this period
         const ticketCount = 0;
-        const clientCount = await Client.countDocuments({ createdBy: user._id });
+        const clientCount = await Client.countDocuments({
+          tenantId: req.user.tenantId,
+          createdBy: user._id,
+        });
 
         const rangeStart = Object.keys(dateFilter).length > 0
           ? new Date(dateFilter.$gte || new Date(0))
@@ -311,6 +323,7 @@ export const getMarketingPerformance = async (req, res) => {
             {
               $match: {
                 user: user._id,
+                tenantId: req.user.tenantId,
                 loginTime: { $gte: dayWiseFrom, $lte: rangeEnd },
               },
             },
@@ -341,6 +354,7 @@ export const getMarketingPerformance = async (req, res) => {
           Client.aggregate([
             {
               $match: {
+                tenantId: req.user.tenantId,
                 lastContactedBy: user._id,
                 lastContactedDate: { $gte: dayWiseFrom, $lte: rangeEnd },
               },
@@ -414,9 +428,8 @@ export const getMarketingPerformance = async (req, res) => {
           sessionsPerDay:
             totalSessions > 0
               ? (
-                  (totalSessions /
-                    ((endDate || new Date()) - (startDate || new Date()))) *
-                  86400000
+                  (totalSessions * 86400000) /
+                  Math.max(1, rangeEnd.getTime() - rangeStart.getTime())
                 ).toFixed(2)
               : 0,
           ticketsCreated: ticketCount,
@@ -474,19 +487,20 @@ export const getMyMarketingPerformance = async (req, res) => {
     const tomorrow = new Date(todayStart);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    const query = { user: user._id };
+    const query = { user: user._id, tenantId: req.user.tenantId };
     if (Object.keys(dateFilter).length > 0) {
       query.loginTime = dateFilter;
     }
 
     const sessions = await UserSession.find(query);
     const activeSession = await UserSession.findOne(
-      { user: user._id, isActive: true },
+      { user: user._id, tenantId: req.user.tenantId, isActive: true },
       {},
       { sort: { loginTime: -1 } },
     );
     const todaySessions = await UserSession.find({
       user: user._id,
+      tenantId: req.user.tenantId,
       loginTime: { $gte: todayStart, $lt: tomorrow },
     });
 
@@ -511,7 +525,10 @@ export const getMyMarketingPerformance = async (req, res) => {
         : 0;
 
     const ticketCount = 0;
-    const clientCount = await Client.countDocuments({ createdBy: user._id });
+    const clientCount = await Client.countDocuments({
+      tenantId: req.user.tenantId,
+      createdBy: user._id,
+    });
 
     const rangeStart = Object.keys(dateFilter).length > 0
       ? new Date(dateFilter.$gte || new Date(0))
@@ -527,6 +544,7 @@ export const getMyMarketingPerformance = async (req, res) => {
         {
           $match: {
             user: user._id,
+            tenantId: req.user.tenantId,
             loginTime: { $gte: dayWiseFrom, $lte: rangeEnd },
           },
         },
@@ -557,6 +575,7 @@ export const getMyMarketingPerformance = async (req, res) => {
       Client.aggregate([
         {
           $match: {
+            tenantId: req.user.tenantId,
             lastContactedBy: user._id,
             lastContactedDate: { $gte: dayWiseFrom, $lte: rangeEnd },
           },
@@ -631,9 +650,8 @@ export const getMyMarketingPerformance = async (req, res) => {
         sessionsPerDay:
           totalSessions > 0
             ? (
-                (totalSessions /
-                  ((endDate || new Date()) - (startDate || new Date()))) *
-                86400000
+                (totalSessions * 86400000) /
+                Math.max(1, rangeEnd.getTime() - rangeStart.getTime())
               ).toFixed(2)
             : 0,
         ticketsCreated: ticketCount,
@@ -667,8 +685,12 @@ export const getMarketingUserDetailedReport = async (req, res) => {
     const { days = 30 } = req.query;
 
     // Get user
-    const user = await User.findById(userId).select("-password -refreshToken");
-    if (!user || user.role !== "marketing") {
+    const user = await User.findOne({
+      _id: userId,
+      tenantId: req.user.tenantId,
+      role: "marketing",
+    }).select("-password -refreshToken");
+    if (!user) {
       return res.status(404).json({
         success: false,
         message: "Marketing user not found",
@@ -681,11 +703,12 @@ export const getMarketingUserDetailedReport = async (req, res) => {
 
     const sessions = await UserSession.find({
       user: userId,
+      tenantId: req.user.tenantId,
       loginTime: { $gte: startDate },
     }).sort({ loginTime: -1 });
 
     const activeSession = await UserSession.findOne(
-      { user: userId, isActive: true },
+      { user: userId, tenantId: req.user.tenantId, isActive: true },
       {},
       { sort: { loginTime: -1 } },
     );
@@ -693,6 +716,7 @@ export const getMarketingUserDetailedReport = async (req, res) => {
     const contactedAgg = await Client.aggregate([
       {
         $match: {
+          tenantId: req.user.tenantId,
           lastContactedBy: user._id,
           lastContactedDate: { $gte: startDate, $lte: new Date() },
         },

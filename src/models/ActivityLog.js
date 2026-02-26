@@ -3,6 +3,12 @@ import { deleteCache } from "../config/redis.js";
 
 const activityLogSchema = new mongoose.Schema(
   {
+    tenantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Tenant",
+      required: true,
+      index: true,
+    },
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -17,12 +23,17 @@ const activityLogSchema = new mongoose.Schema(
         "logout",
         "password_change",
         "password_reset",
+        "invite_create",
+        "invite_accepted",
+        "register_marketing_manager_pending",
         // User actions
         "user_create",
         "user_update",
         "user_delete",
         "user_activate",
         "user_deactivate",
+        "user_approve",
+        "user_reject",
         // Event actions
         "event_create",
         "event_update",
@@ -74,10 +85,10 @@ const activityLogSchema = new mongoose.Schema(
 );
 
 // Indexes for performance
-activityLogSchema.index({ user: 1, createdAt: -1 });
-activityLogSchema.index({ action: 1 });
-activityLogSchema.index({ resourceType: 1, resourceId: 1 });
-activityLogSchema.index({ createdAt: -1 });
+activityLogSchema.index({ tenantId: 1, user: 1, createdAt: -1 });
+activityLogSchema.index({ tenantId: 1, action: 1 });
+activityLogSchema.index({ tenantId: 1, resourceType: 1, resourceId: 1 });
+activityLogSchema.index({ tenantId: 1, createdAt: -1 });
 
 // TTL index to auto-delete logs older than 90 days (optional)
 // activityLogSchema.index({ createdAt: 1 }, { expireAfterSeconds: 7776000 });

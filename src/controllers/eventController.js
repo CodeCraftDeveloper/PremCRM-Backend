@@ -1,6 +1,7 @@
 import Event from "../models/Event.js";
 import Client from "../models/Client.js";
 import ActivityLog from "../models/ActivityLog.js";
+import User from "../models/User.js";
 import {
   ApiError,
   asyncHandler,
@@ -16,12 +17,43 @@ import logger from "../utils/logger.js";
 
 const CACHE_TTL = 3600; // 1 hour
 
+const getTenantUserIds = async (tenantId) => {
+  const users = await User.find({ tenantId }, { _id: 1 }).lean();
+  return users.map((user) => user._id);
+};
+
+const buildEventTenantScope = (tenantId, tenantUserIds = []) => ({
+  $or: [
+    { tenantId },
+    {
+      tenantId: { $exists: false },
+      createdBy: { $in: tenantUserIds },
+    },
+    {
+      tenantId: null,
+      createdBy: { $in: tenantUserIds },
+    },
+  ],
+});
+
+const backfillLegacyEventTenantIds = async (tenantId, tenantUserIds = []) => {
+  if (!tenantUserIds.length) return;
+  await Event.updateMany(
+    {
+      $or: [{ tenantId: { $exists: false } }, { tenantId: null }],
+      createdBy: { $in: tenantUserIds },
+    },
+    { $set: { tenantId } },
+  );
+};
+
 /**
  * @desc    Get all events
  * @route   GET /api/events
  * @access  Private
  */
 const getEvents = asyncHandler(async (req, res, next) => {
+  const tenantId = req.user.tenantId;
   const {
     page = 1,
     limit = 10,
@@ -30,17 +62,21 @@ const getEvents = asyncHandler(async (req, res, next) => {
     status,
     search,
   } = req.query;
+  const tenantUserIds = await getTenantUserIds(tenantId);
+  const eventScope = buildEventTenantScope(tenantId, tenantUserIds);
+  const useCache = process.env.NODE_ENV === "production";
 
+  const eventsCacheKey = `events:all:${tenantId}`;
   // Try cache first (only for simple queries)
-  if (!search && !status && page === 1) {
-    const cached = await getCache("events:all");
+  if (useCache && !search && !status && page === 1) {
+    const cached = await getCache(eventsCacheKey);
     if (cached) {
       return successResponse(res, cached, "Events retrieved from cache");
     }
   }
 
   // Build query
-  const query = {};
+  const query = { ...eventScope };
 
   if (status) {
     if (status === "active") {
@@ -69,12 +105,14 @@ const getEvents = asyncHandler(async (req, res, next) => {
     Event.countDocuments(query),
   ]);
 
+  await backfillLegacyEventTenantIds(tenantId, tenantUserIds);
+
   const totalPages = Math.ceil(totalDocs / parseInt(limit));
 
   // Cache simple queries
-  if (!search && !status && page === 1) {
+  if (useCache && !search && !status && page === 1) {
     await setCache(
-      "events:all",
+      eventsCacheKey,
       {
         events,
         pagination: { page: 1, limit: parseInt(limit), totalPages, totalDocs },
@@ -97,18 +135,34 @@ const getEvents = asyncHandler(async (req, res, next) => {
  * @access  Private
  */
 const getActiveEvents = asyncHandler(async (req, res, next) => {
+  const tenantId = req.user.tenantId;
+  const tenantUserIds = await getTenantUserIds(tenantId);
+  const eventScope = buildEventTenantScope(tenantId, tenantUserIds);
+  const useCache = process.env.NODE_ENV === "production";
+  const activeEventsCacheKey = `events:active:${tenantId}`;
   // Try cache first
-  const cached = await getCache("events:active");
-  if (cached) {
-    return successResponse(res, cached, "Active events retrieved from cache");
+  if (useCache) {
+    const cached = await getCache(activeEventsCacheKey);
+    if (cached) {
+      return successResponse(res, cached, "Active events retrieved from cache");
+    }
   }
 
-  const events = await Event.findActiveEvents()
+  const now = new Date();
+  const events = await Event.find({
+    ...eventScope,
+    status: { $in: ["upcoming", "active"] },
+    endDate: { $gte: now },
+  })
+    .sort({ startDate: 1 })
     .select("name description startDate endDate status")
     .populate("clientCount");
 
   // Cache result
-  await setCache("events:active", { events }, CACHE_TTL);
+  if (useCache) {
+    await setCache(activeEventsCacheKey, { events }, CACHE_TTL);
+  }
+  await backfillLegacyEventTenantIds(tenantId, tenantUserIds);
 
   successResponse(res, { events });
 });
@@ -119,7 +173,10 @@ const getActiveEvents = asyncHandler(async (req, res, next) => {
  * @access  Private
  */
 const getEvent = asyncHandler(async (req, res, next) => {
-  const event = await Event.findById(req.params.id)
+  const tenantId = req.user.tenantId;
+  const tenantUserIds = await getTenantUserIds(tenantId);
+  const eventScope = buildEventTenantScope(tenantId, tenantUserIds);
+  const event = await Event.findOne({ _id: req.params.id, ...eventScope })
     .populate("createdBy", "name email")
     .populate("assignedUsers", "name email avatar")
     .populate("clientCount");
@@ -129,11 +186,11 @@ const getEvent = asyncHandler(async (req, res, next) => {
   }
 
   // Get event statistics
-  const clientStats = await Client.getStats({ event: event._id });
+  const clientStats = await Client.getStats({ tenantId, event: event._id });
 
   // Get clients by marketing person for this event
   const clientsByMarketer = await Client.aggregate([
-    { $match: { event: event._id, isActive: true } },
+    { $match: { tenantId, event: event._id, isActive: true } },
     {
       $group: {
         _id: "$marketingPerson",
@@ -171,6 +228,7 @@ const getEvent = asyncHandler(async (req, res, next) => {
  * @access  Private/Admin
  */
 const createEvent = asyncHandler(async (req, res, next) => {
+  const tenantId = req.user.tenantId;
   const {
     name,
     description,
@@ -190,6 +248,7 @@ const createEvent = asyncHandler(async (req, res, next) => {
 
   // Create event
   const event = await Event.create({
+    tenantId,
     name,
     description,
     location,
@@ -204,6 +263,7 @@ const createEvent = asyncHandler(async (req, res, next) => {
 
   // Log activity
   await ActivityLog.log({
+    tenantId,
     user: req.user._id,
     action: "event_create",
     resourceType: "event",
@@ -215,6 +275,7 @@ const createEvent = asyncHandler(async (req, res, next) => {
 
   // Clear cache
   await deleteCachePattern("events:*");
+  await deleteCachePattern(`dashboard:admin:${tenantId}`);
 
   logger.info(`Event created: ${event.name} by ${req.user.email}`);
 
@@ -227,6 +288,9 @@ const createEvent = asyncHandler(async (req, res, next) => {
  * @access  Private/Admin
  */
 const updateEvent = asyncHandler(async (req, res, next) => {
+  const tenantId = req.user.tenantId;
+  const tenantUserIds = await getTenantUserIds(tenantId);
+  const eventScope = buildEventTenantScope(tenantId, tenantUserIds);
   const {
     name,
     description,
@@ -240,7 +304,7 @@ const updateEvent = asyncHandler(async (req, res, next) => {
     assignedUsers,
   } = req.body;
 
-  const event = await Event.findById(req.params.id);
+  const event = await Event.findOne({ _id: req.params.id, ...eventScope });
 
   if (!event) {
     return next(ApiError.notFound("Event not found"));
@@ -252,8 +316,8 @@ const updateEvent = asyncHandler(async (req, res, next) => {
   }
 
   // Update event
-  const updatedEvent = await Event.findByIdAndUpdate(
-    req.params.id,
+  const updatedEvent = await Event.findOneAndUpdate(
+    { _id: req.params.id, ...eventScope },
     {
       name,
       description,
@@ -271,6 +335,7 @@ const updateEvent = asyncHandler(async (req, res, next) => {
 
   // Log activity
   await ActivityLog.log({
+    tenantId,
     user: req.user._id,
     action: "event_update",
     resourceType: "event",
@@ -282,6 +347,7 @@ const updateEvent = asyncHandler(async (req, res, next) => {
 
   // Clear cache
   await deleteCachePattern("events:*");
+  await deleteCachePattern(`dashboard:admin:${tenantId}`);
 
   logger.info(`Event updated: ${updatedEvent.name} by ${req.user.email}`);
 
@@ -294,14 +360,17 @@ const updateEvent = asyncHandler(async (req, res, next) => {
  * @access  Private/Admin
  */
 const deleteEvent = asyncHandler(async (req, res, next) => {
-  const event = await Event.findById(req.params.id);
+  const tenantId = req.user.tenantId;
+  const tenantUserIds = await getTenantUserIds(tenantId);
+  const eventScope = buildEventTenantScope(tenantId, tenantUserIds);
+  const event = await Event.findOne({ _id: req.params.id, ...eventScope });
 
   if (!event) {
     return next(ApiError.notFound("Event not found"));
   }
 
   // Check if event has clients
-  const clientCount = await Client.countDocuments({ event: event._id });
+  const clientCount = await Client.countDocuments({ tenantId, event: event._id });
   if (clientCount > 0) {
     return next(
       ApiError.badRequest(
@@ -310,10 +379,11 @@ const deleteEvent = asyncHandler(async (req, res, next) => {
     );
   }
 
-  await Event.findByIdAndDelete(req.params.id);
+  await Event.deleteOne({ _id: req.params.id, ...eventScope });
 
   // Log activity
   await ActivityLog.log({
+    tenantId,
     user: req.user._id,
     action: "event_delete",
     resourceType: "event",
@@ -325,6 +395,7 @@ const deleteEvent = asyncHandler(async (req, res, next) => {
 
   // Clear cache
   await deleteCachePattern("events:*");
+  await deleteCachePattern(`dashboard:admin:${tenantId}`);
 
   logger.info(`Event deleted: ${event.name} by ${req.user.email}`);
 
@@ -337,17 +408,20 @@ const deleteEvent = asyncHandler(async (req, res, next) => {
  * @access  Private
  */
 const getEventStats = asyncHandler(async (req, res, next) => {
-  const event = await Event.findById(req.params.id);
+  const tenantId = req.user.tenantId;
+  const tenantUserIds = await getTenantUserIds(tenantId);
+  const eventScope = buildEventTenantScope(tenantId, tenantUserIds);
+  const event = await Event.findOne({ _id: req.params.id, ...eventScope });
 
   if (!event) {
     return next(ApiError.notFound("Event not found"));
   }
 
-  const stats = await Client.getStats({ event: event._id });
+  const stats = await Client.getStats({ tenantId, event: event._id });
 
   // Get daily lead trend for the event
   const dailyTrend = await Client.aggregate([
-    { $match: { event: event._id } },
+    { $match: { tenantId, event: event._id } },
     {
       $group: {
         _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },

@@ -17,6 +17,21 @@ const getTokenFromSocket = (socket) => {
     return header.split(" ")[1];
   }
 
+  const cookieHeader = socket.handshake.headers?.cookie;
+  if (cookieHeader) {
+    const tokenCookie = cookieHeader
+      .split(";")
+      .map((entry) => entry.trim())
+      .find((entry) => entry.startsWith("accessToken="));
+    if (tokenCookie) {
+      try {
+        return decodeURIComponent(tokenCookie.split("=")[1] || "");
+      } catch {
+        return tokenCookie.split("=")[1] || "";
+      }
+    }
+  }
+
   return null;
 };
 
@@ -77,7 +92,7 @@ const getMergedOnlineSeconds = (sessions, now = new Date()) => {
 
 const buildMarketingUserStatus = async (user) => {
   const currentSession = await UserSession.findOne(
-    { user: user._id, isActive: true },
+    { user: user._id, tenantId: user.tenantId, isActive: true },
     {},
     { sort: { loginTime: -1 } },
   );
@@ -87,6 +102,7 @@ const buildMarketingUserStatus = async (user) => {
 
   const todaySessions = await UserSession.find({
     user: user._id,
+    tenantId: user.tenantId,
     loginTime: { $gte: today },
   });
 
@@ -108,10 +124,11 @@ const buildMarketingUserStatus = async (user) => {
   };
 };
 
-const getAllMarketingStatuses = async () => {
+const getAllMarketingStatuses = async (tenantId) => {
   const marketingUsers = await User.find({
     role: "marketing",
     isActive: true,
+    tenantId,
   }).select("-password -refreshToken");
 
   return Promise.all(marketingUsers.map((user) => buildMarketingUserStatus(user)));
@@ -153,7 +170,9 @@ export const initializeSocketServer = (httpServer) => {
   io.on("connection", async (socket) => {
     const user = socket.data.user;
     const userId = String(user._id);
+    const tenantId = String(user.tenantId);
     const userRoom = `user:${userId}`;
+    const adminRoom = `admins:${tenantId}`;
     const clientSessionId = getClientSessionIdFromSocket(socket) || `socket:${socket.id}`;
     const sessionRoom = `session:${userId}:${clientSessionId}`;
     const disconnectKey = `${userId}:${clientSessionId}`;
@@ -161,8 +180,8 @@ export const initializeSocketServer = (httpServer) => {
     socket.join(userRoom);
     socket.join(sessionRoom);
     if (user.role === "admin") {
-      socket.join("admins");
-      const statuses = await getAllMarketingStatuses();
+      socket.join(adminRoom);
+      const statuses = await getAllMarketingStatuses(user.tenantId);
       socket.emit("marketing:status_snapshot", statuses);
     }
 
@@ -181,6 +200,7 @@ export const initializeSocketServer = (httpServer) => {
     if (!session) {
       session = await UserSession.create({
         user: user._id,
+        tenantId: user.tenantId,
         loginTime: new Date(),
         isActive: true,
         ipAddress: socket.handshake.address,
@@ -194,7 +214,7 @@ export const initializeSocketServer = (httpServer) => {
 
     if (user.role === "marketing") {
       const status = await buildMarketingUserStatus(user);
-      io.to("admins").emit("marketing:status_changed", status);
+      io.to(adminRoom).emit("marketing:status_changed", status);
     }
 
     socket.on("disconnect", async () => {
@@ -217,7 +237,7 @@ export const initializeSocketServer = (httpServer) => {
             );
             if (refreshedUser) {
               const status = await buildMarketingUserStatus(refreshedUser);
-              io.to("admins").emit("marketing:status_changed", status);
+              io.to(adminRoom).emit("marketing:status_changed", status);
             }
           }
         } catch (error) {

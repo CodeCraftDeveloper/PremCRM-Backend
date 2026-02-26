@@ -18,8 +18,11 @@ const getRemarks = asyncHandler(async (req, res, next) => {
   const { clientId } = req.params;
   const { page = 1, limit = 20, type } = req.query;
 
-  // Verify client exists
-  const client = await Client.findById(clientId);
+  // Verify client exists within current tenant
+  const client = await Client.findOne({
+    _id: clientId,
+    tenantId: req.user.tenantId,
+  });
   if (!client) {
     return next(ApiError.notFound("Client not found"));
   }
@@ -67,8 +70,11 @@ const createRemark = asyncHandler(async (req, res, next) => {
   const { clientId } = req.params;
   const { content, type = "note", isInternal = false } = req.body;
 
-  // Verify client exists
-  const client = await Client.findById(clientId);
+  // Verify client exists within current tenant
+  const client = await Client.findOne({
+    _id: clientId,
+    tenantId: req.user.tenantId,
+  });
   if (!client) {
     return next(ApiError.notFound("Client not found"));
   }
@@ -100,6 +106,7 @@ const createRemark = asyncHandler(async (req, res, next) => {
 
   // Log activity
   await ActivityLog.log({
+    tenantId: req.user.tenantId,
     user: req.user._id,
     action: "remark_create",
     resourceType: "remark",
@@ -132,9 +139,18 @@ const createRemark = asyncHandler(async (req, res, next) => {
 const updateRemark = asyncHandler(async (req, res, next) => {
   const { content, isPinned } = req.body;
 
-  const remark = await Remark.findById(req.params.id);
+  const remark = await Remark.findById(req.params.id).populate(
+    "client",
+    "tenantId",
+  );
 
   if (!remark) {
+    return next(ApiError.notFound("Remark not found"));
+  }
+  if (
+    !remark.client ||
+    String(remark.client.tenantId) !== String(req.user.tenantId)
+  ) {
     return next(ApiError.notFound("Remark not found"));
   }
 
@@ -159,6 +175,7 @@ const updateRemark = asyncHandler(async (req, res, next) => {
 
   // Log activity
   await ActivityLog.log({
+    tenantId: req.user.tenantId,
     user: req.user._id,
     action: "remark_update",
     resourceType: "remark",
@@ -183,9 +200,18 @@ const updateRemark = asyncHandler(async (req, res, next) => {
  * @access  Private
  */
 const deleteRemark = asyncHandler(async (req, res, next) => {
-  const remark = await Remark.findById(req.params.id);
+  const remark = await Remark.findById(req.params.id).populate(
+    "client",
+    "tenantId",
+  );
 
   if (!remark) {
+    return next(ApiError.notFound("Remark not found"));
+  }
+  if (
+    !remark.client ||
+    String(remark.client.tenantId) !== String(req.user.tenantId)
+  ) {
     return next(ApiError.notFound("Remark not found"));
   }
 
@@ -206,6 +232,7 @@ const deleteRemark = asyncHandler(async (req, res, next) => {
 
   // Log activity
   await ActivityLog.log({
+    tenantId: req.user.tenantId,
     user: req.user._id,
     action: "remark_delete",
     resourceType: "remark",
@@ -229,8 +256,11 @@ const getClientTimeline = asyncHandler(async (req, res, next) => {
   const { clientId } = req.params;
   const { limit = 50, page = 1 } = req.query;
 
-  // Verify client exists
-  const client = await Client.findById(clientId);
+  // Verify client exists within current tenant
+  const client = await Client.findOne({
+    _id: clientId,
+    tenantId: req.user.tenantId,
+  });
   if (!client) {
     return next(ApiError.notFound("Client not found"));
   }

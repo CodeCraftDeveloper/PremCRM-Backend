@@ -6,6 +6,12 @@ import mongoose from "mongoose";
  */
 const userSessionSchema = new mongoose.Schema(
   {
+    tenantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Tenant",
+      required: true,
+      index: true,
+    },
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -25,9 +31,10 @@ const userSessionSchema = new mongoose.Schema(
       default: true,
     },
     duration: {
-      // Duration in seconds
+      // Duration in seconds (calculated at service layer, not in pre-save hook!)
       type: Number,
       default: 0,
+      index: true,
     },
     ipAddress: {
       type: String,
@@ -41,6 +48,10 @@ const userSessionSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    device: {
+      type: String,
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -48,16 +59,14 @@ const userSessionSchema = new mongoose.Schema(
 );
 
 // Indexes for performance
-userSessionSchema.index({ user: 1, loginTime: -1 });
-userSessionSchema.index({ user: 1, isActive: 1 });
-userSessionSchema.index({ user: 1, clientSessionId: 1, isActive: 1 });
-userSessionSchema.index({ createdAt: -1 });
-
-// Middleware to calculate duration before saving
-userSessionSchema.pre("save", function () {
-  if (this.logoutTime && this.loginTime) {
-    this.duration = Math.floor((this.logoutTime - this.loginTime) / 1000); // Convert to seconds
-  }
+userSessionSchema.index({ tenantId: 1, user: 1, loginTime: -1 });
+userSessionSchema.index({ tenantId: 1, user: 1, isActive: 1 });
+userSessionSchema.index({
+  tenantId: 1,
+  user: 1,
+  clientSessionId: 1,
+  isActive: 1,
 });
+userSessionSchema.index({ tenantId: 1, createdAt: -1 });
 
 export default mongoose.model("UserSession", userSessionSchema);

@@ -1,5 +1,6 @@
 import { ApiError } from "../utils/apiResponse.js";
 import logger from "../utils/logger.js";
+import { MAX_FILE_SIZE } from "./upload.js";
 
 /**
  * Global error handler middleware
@@ -51,7 +52,9 @@ const errorHandler = (err, req, res, next) => {
 
   // Multer errors
   if (err.code === "LIMIT_FILE_SIZE") {
-    error = ApiError.badRequest("File too large. Maximum size is 5MB.");
+    error = ApiError.badRequest(
+      `File too large. Maximum size is ${MAX_FILE_SIZE / (1024 * 1024)}MB.`,
+    );
   }
 
   if (err.code === "LIMIT_UNEXPECTED_FILE") {

@@ -9,16 +9,24 @@ import logger from "../utils/logger.js";
 import crypto from "crypto";
 import path from "path";
 
-// Initialize S3 client
-const s3Client = new S3Client({
-  region: process.env.AWS_REGION,
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-  },
-});
+// Lazy-initialised S3 client — env vars are not available at import time
+// because ES-module imports are hoisted before dotenv.config() runs.
+let _s3Client = null;
 
-const BUCKET_NAME = process.env.AWS_S3_BUCKET;
+const getS3Client = () => {
+  if (!_s3Client) {
+    _s3Client = new S3Client({
+      region: process.env.AWS_REGION,
+      credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+      },
+    });
+  }
+  return _s3Client;
+};
+
+const getBucket = () => process.env.AWS_S3_BUCKET;
 
 /**
  * Generate a unique filename
@@ -51,7 +59,7 @@ const uploadToS3 = async (
     const key = `${folder}/${filename}`;
 
     const command = new PutObjectCommand({
-      Bucket: BUCKET_NAME,
+      Bucket: getBucket(),
       Key: key,
       Body: fileBuffer,
       ContentType: mimeType,
@@ -59,9 +67,9 @@ const uploadToS3 = async (
       // ACL: 'public-read',
     });
 
-    await s3Client.send(command);
+    await getS3Client().send(command);
 
-    const url = `https://${BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+    const url = `https://${getBucket()}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
 
     logger.info(`File uploaded to S3: ${key}`);
 
@@ -85,11 +93,11 @@ const uploadToS3 = async (
 const deleteFromS3 = async (key) => {
   try {
     const command = new DeleteObjectCommand({
-      Bucket: BUCKET_NAME,
+      Bucket: getBucket(),
       Key: key,
     });
 
-    await s3Client.send(command);
+    await getS3Client().send(command);
     logger.info(`File deleted from S3: ${key}`);
     return true;
   } catch (error) {
@@ -107,11 +115,11 @@ const deleteFromS3 = async (key) => {
 const getSignedFileUrl = async (key, expiresIn = 3600) => {
   try {
     const command = new GetObjectCommand({
-      Bucket: BUCKET_NAME,
+      Bucket: getBucket(),
       Key: key,
     });
 
-    const signedUrl = await getSignedUrl(s3Client, command, { expiresIn });
+    const signedUrl = await getSignedUrl(getS3Client(), command, { expiresIn });
     return signedUrl;
   } catch (error) {
     logger.error(`S3 signed URL error: ${error.message}`);
@@ -120,7 +128,7 @@ const getSignedFileUrl = async (key, expiresIn = 3600) => {
 };
 
 export {
-  s3Client,
+  getS3Client as s3Client,
   uploadToS3,
   deleteFromS3,
   getSignedFileUrl,

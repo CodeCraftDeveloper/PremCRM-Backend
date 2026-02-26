@@ -2,6 +2,12 @@ import mongoose from "mongoose";
 
 const clientSchema = new mongoose.Schema(
   {
+    tenantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Tenant",
+      required: true,
+      index: true,
+    },
     // Basic Information
     name: {
       type: String,
@@ -152,17 +158,15 @@ const clientSchema = new mongoose.Schema(
 );
 
 // Indexes for performance
-clientSchema.index({ marketingPerson: 1 });
-clientSchema.index({ createdBy: 1 });
-clientSchema.index({ lastContactedBy: 1 });
-clientSchema.index({ event: 1 });
-clientSchema.index({ followUpStatus: 1 });
-clientSchema.index({ priority: 1 });
-clientSchema.index({ nextFollowUpDate: 1 });
-clientSchema.index({ createdAt: -1 });
+clientSchema.index({ tenantId: 1, marketingPerson: 1 });
+clientSchema.index({ tenantId: 1, createdBy: 1 });
+clientSchema.index({ tenantId: 1, event: 1 });
+clientSchema.index({ tenantId: 1, followUpStatus: 1 });
+clientSchema.index({ tenantId: 1, priority: 1 });
+clientSchema.index({ tenantId: 1, nextFollowUpDate: 1 });
+clientSchema.index({ tenantId: 1, createdAt: -1 });
+clientSchema.index({ tenantId: 1, isActive: 1 });
 clientSchema.index({ name: "text", companyName: "text", email: "text" });
-clientSchema.index({ event: 1, marketingPerson: 1 });
-clientSchema.index({ followUpStatus: 1, nextFollowUpDate: 1 });
 
 // Virtual to get remarks for this client
 clientSchema.virtual("remarks", {

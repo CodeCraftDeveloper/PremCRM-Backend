@@ -2,9 +2,13 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import mongoose from "mongoose";
+import dns from "dns";
 import User from "./src/models/User.js";
 import Event from "./src/models/Event.js";
 import logger from "./src/utils/logger.js";
+
+// Use reliable public resolvers for MongoDB SRV lookups.
+dns.setServers(["8.8.8.8", "8.8.4.4"]);
 
 /**
  * Database Seeder - Create initial admin user and sample data
@@ -12,7 +16,11 @@ import logger from "./src/utils/logger.js";
 const seedDatabase = async () => {
   try {
     // Connect to MongoDB
-    await mongoose.connect(process.env.MONGODB_URI);
+    await mongoose.connect(process.env.MONGODB_URI, {
+      serverSelectionTimeoutMS: 10000,
+      socketTimeoutMS: 45000,
+      family: 4,
+    });
     logger.info("MongoDB connected for seeding");
 
     // Check if admin already exists
@@ -88,3 +96,4 @@ const seedDatabase = async () => {
 
 // Run seeder
 seedDatabase();
+

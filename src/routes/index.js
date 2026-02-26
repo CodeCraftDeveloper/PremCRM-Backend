@@ -7,3 +7,8 @@ export { default as remarkRoutes } from "./remarkRoutes.js";
 export { default as dashboardRoutes } from "./dashboardRoutes.js";
 export { default as exportRoutes } from "./exportRoutes.js";
 export { default as sessionRoutes } from "./sessionRoutes.js";
+export { default as publicLeadRoutes } from "./publicLeadRoutes.js";
+export { default as leadRoutes } from "./leadRoutes.js";
+export { default as websiteRoutes } from "./websiteRoutes.js";
+export { default as tenantRoutes } from "./tenantRoutes.js";
+export { default as superAdminRoutes } from "./superAdminRoutes.js";

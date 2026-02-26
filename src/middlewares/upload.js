@@ -9,6 +9,9 @@ const ALLOWED_FILE_TYPES = {
     "application/pdf",
     "application/msword",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel",
+    "text/csv",
   ],
   all: [
     "image/jpeg",
@@ -17,21 +20,44 @@ const ALLOWED_FILE_TYPES = {
     "image/gif",
     "image/webp",
     "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel",
+    "text/csv",
   ],
 };
 
-// Max file size (5MB)
-const MAX_FILE_SIZE = parseInt(process.env.MAX_FILE_SIZE) || 5 * 1024 * 1024;
+const ALLOWED_EXTENSIONS = new Set([
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".gif",
+  ".webp",
+  ".pdf",
+  ".doc",
+  ".docx",
+  ".xlsx",
+  ".xls",
+  ".csv",
+]);
+
+// Max file size (10MB by default to limit in-memory upload pressure)
+const MAX_FILE_SIZE =
+  parseInt(process.env.MAX_FILE_SIZE, 10) || 10 * 1024 * 1024;
+const MAX_FILES_PER_UPLOAD = 5;
+const MAX_FORM_FIELDS = 30;
+const MAX_FORM_FIELD_SIZE = 256 * 1024; // 256KB per text field
 
 /**
  * File filter function
  * @param {Array} allowedTypes - Array of allowed MIME types
  */
 const createFileFilter = (allowedTypes) => (req, file, cb) => {
-  if (allowedTypes.includes(file.mimetype)) {
-    cb(null, true);
-  } else {
-    cb(
+  const ext = path.extname(file.originalname || "").toLowerCase();
+
+  if (!allowedTypes.includes(file.mimetype)) {
+    return cb(
       new ApiError(
         400,
         `Invalid file type. Allowed types: ${allowedTypes.map((t) => t.split("/")[1]).join(", ")}`,
@@ -39,6 +65,19 @@ const createFileFilter = (allowedTypes) => (req, file, cb) => {
       false,
     );
   }
+
+  if (!ext || !ALLOWED_EXTENSIONS.has(ext)) {
+    cb(
+      new ApiError(
+        400,
+        `Invalid file extension. Allowed extensions: ${Array.from(ALLOWED_EXTENSIONS).join(", ")}`,
+      ),
+      false,
+    );
+    return;
+  }
+
+  cb(null, true);
 };
 
 /**
@@ -67,6 +106,9 @@ const uploadVisitingCard = multer({
   storage: memoryStorage,
   limits: {
     fileSize: MAX_FILE_SIZE,
+    files: 1,
+    fields: MAX_FORM_FIELDS,
+    fieldSize: MAX_FORM_FIELD_SIZE,
   },
   fileFilter: createFileFilter(ALLOWED_FILE_TYPES.image),
 }).single("visitingCard");
@@ -78,6 +120,9 @@ const uploadFile = multer({
   storage: memoryStorage,
   limits: {
     fileSize: MAX_FILE_SIZE,
+    files: 1,
+    fields: MAX_FORM_FIELDS,
+    fieldSize: MAX_FORM_FIELD_SIZE,
   },
   fileFilter: createFileFilter(ALLOWED_FILE_TYPES.all),
 }).single("file");
@@ -89,10 +134,26 @@ const uploadMultipleFiles = multer({
   storage: memoryStorage,
   limits: {
     fileSize: MAX_FILE_SIZE,
-    files: 5,
+    files: MAX_FILES_PER_UPLOAD,
+    fields: MAX_FORM_FIELDS,
+    fieldSize: MAX_FORM_FIELD_SIZE,
   },
   fileFilter: createFileFilter(ALLOWED_FILE_TYPES.all),
-}).array("files", 5);
+}).array("files", MAX_FILES_PER_UPLOAD);
+
+/**
+ * Upload middleware for lead attachments (multiple files, up to 5)
+ */
+const uploadLeadAttachments = multer({
+  storage: memoryStorage,
+  limits: {
+    fileSize: MAX_FILE_SIZE,
+    files: MAX_FILES_PER_UPLOAD,
+    fields: MAX_FORM_FIELDS,
+    fieldSize: MAX_FORM_FIELD_SIZE,
+  },
+  fileFilter: createFileFilter(ALLOWED_FILE_TYPES.all),
+}).array("attachments", MAX_FILES_PER_UPLOAD);
 
 /**
  * Upload middleware for avatar
@@ -101,6 +162,9 @@ const uploadAvatar = multer({
   storage: memoryStorage,
   limits: {
     fileSize: 2 * 1024 * 1024, // 2MB for avatars
+    files: 1,
+    fields: MAX_FORM_FIELDS,
+    fieldSize: MAX_FORM_FIELD_SIZE,
   },
   fileFilter: createFileFilter(ALLOWED_FILE_TYPES.image),
 }).single("avatar");
@@ -118,7 +182,11 @@ const handleUploadError = (err, req, res, next) => {
       );
     }
     if (err.code === "LIMIT_FILE_COUNT") {
-      return next(ApiError.badRequest("Too many files. Maximum is 5 files."));
+      return next(
+        ApiError.badRequest(
+          `Too many files. Maximum is ${MAX_FILES_PER_UPLOAD} files.`,
+        ),
+      );
     }
     if (err.code === "LIMIT_UNEXPECTED_FILE") {
       return next(ApiError.badRequest(`Unexpected field: ${err.field}`));
@@ -132,6 +200,7 @@ export {
   uploadVisitingCard,
   uploadFile,
   uploadMultipleFiles,
+  uploadLeadAttachments,
   uploadAvatar,
   handleUploadError,
   ALLOWED_FILE_TYPES,

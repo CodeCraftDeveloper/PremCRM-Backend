@@ -2,6 +2,12 @@ import mongoose from "mongoose";
 
 const eventSchema = new mongoose.Schema(
   {
+    tenantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Tenant",
+      required: true,
+      index: true,
+    },
     name: {
       type: String,
       required: [true, "Event name is required"],
@@ -30,6 +36,7 @@ const eventSchema = new mongoose.Schema(
       type: String,
       enum: ["upcoming", "active", "completed", "cancelled"],
       default: "upcoming",
+      index: true,
     },
     targetLeads: {
       type: Number,
@@ -71,10 +78,10 @@ const eventSchema = new mongoose.Schema(
 );
 
 // Indexes for performance
-eventSchema.index({ status: 1 });
-eventSchema.index({ startDate: 1, endDate: 1 });
+eventSchema.index({ tenantId: 1, status: 1 });
+eventSchema.index({ tenantId: 1, startDate: 1, endDate: 1 });
+eventSchema.index({ tenantId: 1, createdAt: -1 });
 eventSchema.index({ name: "text", description: "text" });
-eventSchema.index({ createdAt: -1 });
 
 // Virtual to get client count for this event
 eventSchema.virtual("clientCount", {
@@ -105,20 +112,20 @@ eventSchema.pre("save", function () {
       this.status = "completed";
     }
   }
-
 });
 
 // Keep status auto-sync for query-based updates (findByIdAndUpdate/findOneAndUpdate)
 eventSchema.pre("findOneAndUpdate", async function () {
   const update = this.getUpdate() || {};
 
-  const event = await this.model.findOne(this.getQuery()).select(
-    "startDate endDate status",
-  );
+  const event = await this.model
+    .findOne(this.getQuery())
+    .select("startDate endDate status");
 
   if (!event) return;
 
-  const nextStartDate = update.startDate || update.$set?.startDate || event.startDate;
+  const nextStartDate =
+    update.startDate || update.$set?.startDate || event.startDate;
   const nextEndDate = update.endDate || update.$set?.endDate || event.endDate;
   const requestedStatus = update.status || update.$set?.status || event.status;
 

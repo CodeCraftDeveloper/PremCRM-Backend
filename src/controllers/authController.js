@@ -1,19 +1,46 @@
 import User from "../models/User.js";
+import Tenant from "../models/Tenant.js";
 import ActivityLog from "../models/ActivityLog.js";
-import UserSession from "../models/UserSession.js";
 import {
   ApiError,
   asyncHandler,
   successResponse,
 } from "../utils/apiResponse.js";
-import {
-  generateAccessToken,
-  generateRefreshToken,
-  verifyRefreshToken,
-  generateRandomToken,
-  hashToken,
-} from "../utils/jwt.js";
+import AuthService from "../core/auth/AuthService.js";
+import SessionService from "../core/auth/SessionService.js";
 import logger from "../utils/logger.js";
+
+const mapAuthErrorToApiError = (error) => {
+  const message = String(error?.message || "Authentication failed");
+  const normalizedMessage = message.toLowerCase();
+
+  if (message.toLowerCase().includes("too many failed attempts")) {
+    return ApiError.tooManyRequests(message);
+  }
+
+  const isAuthFailure =
+    normalizedMessage.includes("invalid credentials") ||
+    normalizedMessage.includes("pending admin approval") ||
+    normalizedMessage.includes("deactivated") ||
+    normalizedMessage.includes("invalid refresh token") ||
+    normalizedMessage.includes("refresh token required");
+
+  if (isAuthFailure) {
+    return ApiError.unauthorized(message);
+  }
+
+  const isWorkspaceSelectionError =
+    normalizedMessage.includes("multiple workspaces found") ||
+    normalizedMessage.includes("tenant not found") ||
+    normalizedMessage.includes("tenant is inactive") ||
+    normalizedMessage.includes("workspace user limit reached");
+
+  if (isWorkspaceSelectionError) {
+    return ApiError.badRequest(message);
+  }
+
+  return ApiError.internal("Authentication service unavailable");
+};
 
 /**
  * @desc    Login user
@@ -21,69 +48,52 @@ import logger from "../utils/logger.js";
  * @access  Public
  */
 const login = asyncHandler(async (req, res, next) => {
-  const { email, password } = req.body;
+  const { email, password, tenantSlug } = req.body;
 
-  // Check if user exists
-  const user = await User.findOne({ email }).select("+password +refreshToken");
+  try {
+    const result = await AuthService.login(email, password, {
+      ipAddress: req.ip,
+      userAgent: req.get("User-Agent"),
+      tenantSlug,
+    });
 
-  if (!user) {
-    return next(ApiError.unauthorized("Invalid credentials"));
-  }
+    // Set httpOnly secure cookie
+    res.cookie("accessToken", result.accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 15 * 60 * 1000, // 15 minutes
+    });
 
-  // Check if user is active
-  if (!user.isActive) {
-    return next(
-      ApiError.unauthorized(
-        "Your account has been deactivated. Please contact admin.",
-      ),
-    );
-  }
+    res.cookie("refreshToken", result.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
 
-  // Check password
-  const isMatch = await user.comparePassword(password);
+    // Log activity
+    await ActivityLog.create({
+      tenantId: result.user.tenantId,
+      user: result.user.id,
+      action: "login",
+      resourceType: "user",
+      resourceId: result.user.id,
+      description: `User logged in: ${result.user.email}`,
+      ipAddress: req.ip,
+      userAgent: req.get("User-Agent"),
+    });
 
-  if (!isMatch) {
-    return next(ApiError.unauthorized("Invalid credentials"));
-  }
-
-  // Generate tokens
-  const accessToken = generateAccessToken({ id: user._id, role: user.role });
-  const refreshToken = generateRefreshToken({ id: user._id });
-
-  // Save refresh token to database
-  user.refreshToken = refreshToken;
-  user.lastLogin = new Date();
-  await user.save({ validateBeforeSave: false });
-
-  // Log activity
-  await ActivityLog.log({
-    user: user._id,
-    action: "login",
-    resourceType: "user",
-    resourceId: user._id,
-    description: `User logged in: ${user.email}`,
-    ipAddress: req.ip,
-    userAgent: req.get("User-Agent"),
-  });
-
-  logger.info(`User logged in: ${user.email}`);
-
-  // Send response
-  successResponse(
-    res,
-    {
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        avatar: user.avatar,
+    successResponse(
+      res,
+      {
+        user: result.user,
       },
-      accessToken,
-      refreshToken,
-    },
-    "Login successful",
-  );
+      "Login successful",
+    );
+  } catch (error) {
+    next(mapAuthErrorToApiError(error));
+  }
 });
 
 /**
@@ -92,47 +102,34 @@ const login = asyncHandler(async (req, res, next) => {
  * @access  Public
  */
 const refreshAccessToken = asyncHandler(async (req, res, next) => {
-  const { refreshToken } = req.body;
-
-  if (!refreshToken) {
-    return next(ApiError.unauthorized("Refresh token required"));
-  }
-
-  // Verify refresh token
-  let decoded;
   try {
-    decoded = verifyRefreshToken(refreshToken);
+    const refreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
+
+    if (!refreshToken) {
+      return next(ApiError.unauthorized("Refresh token required"));
+    }
+
+    const tokens = await AuthService.refreshAccessToken(refreshToken);
+
+    // Set new cookies
+    res.cookie("accessToken", tokens.accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 15 * 60 * 1000,
+    });
+
+    res.cookie("refreshToken", tokens.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    successResponse(res, {}, "Token refreshed successfully");
   } catch (error) {
-    return next(ApiError.unauthorized("Invalid or expired refresh token"));
+    next(mapAuthErrorToApiError(error));
   }
-
-  // Find user and verify stored refresh token
-  const user = await User.findById(decoded.id).select("+refreshToken");
-
-  if (!user || user.refreshToken !== refreshToken) {
-    return next(ApiError.unauthorized("Invalid refresh token"));
-  }
-
-  if (!user.isActive) {
-    return next(ApiError.unauthorized("User account is deactivated"));
-  }
-
-  // Generate new tokens
-  const newAccessToken = generateAccessToken({ id: user._id, role: user.role });
-  const newRefreshToken = generateRefreshToken({ id: user._id });
-
-  // Update refresh token in database
-  user.refreshToken = newRefreshToken;
-  await user.save({ validateBeforeSave: false });
-
-  successResponse(
-    res,
-    {
-      accessToken: newAccessToken,
-      refreshToken: newRefreshToken,
-    },
-    "Token refreshed successfully",
-  );
 });
 
 /**
@@ -141,29 +138,39 @@ const refreshAccessToken = asyncHandler(async (req, res, next) => {
  * @access  Private
  */
 const logout = asyncHandler(async (req, res, next) => {
-  // End active session if present
-  await UserSession.updateMany(
-    { user: req.user._id, isActive: true },
-    { isActive: false, logoutTime: new Date() },
-  );
+  try {
+    // CRITICAL: Use SessionService.endSession() which CALCULATES duration
+    const activeSessions = await SessionService.getUserActiveSessions(
+      req.user._id,
+    );
 
-  // Clear refresh token from database
-  await User.findByIdAndUpdate(req.user._id, { refreshToken: null });
+    for (const session of activeSessions) {
+      await SessionService.endSession(session._id, req.user.tenantId);
+    }
 
-  // Log activity
-  await ActivityLog.log({
-    user: req.user._id,
-    action: "logout",
-    resourceType: "user",
-    resourceId: req.user._id,
-    description: `User logged out: ${req.user.email}`,
-    ipAddress: req.ip,
-    userAgent: req.get("User-Agent"),
-  });
+    // Clear refresh token
+    await User.findByIdAndUpdate(req.user._id, { refreshToken: null });
 
-  logger.info(`User logged out: ${req.user.email}`);
+    // Log activity
+    await ActivityLog.create({
+      tenantId: req.user.tenantId,
+      user: req.user._id,
+      action: "logout",
+      resourceType: "user",
+      resourceId: req.user._id,
+      description: `User logged out: ${req.user.email}`,
+      ipAddress: req.ip,
+      userAgent: req.get("User-Agent"),
+    });
 
-  successResponse(res, null, "Logged out successfully");
+    // Clear cookies
+    res.clearCookie("accessToken");
+    res.clearCookie("refreshToken");
+
+    successResponse(res, null, "Logged out successfully");
+  } catch (error) {
+    next(error);
+  }
 });
 
 /**
@@ -202,37 +209,37 @@ const updateProfile = asyncHandler(async (req, res, next) => {
 const changePassword = asyncHandler(async (req, res, next) => {
   const { currentPassword, newPassword } = req.body;
 
-  const user = await User.findById(req.user._id).select("+password");
+  try {
+    await AuthService.changePassword(
+      req.user._id,
+      currentPassword,
+      newPassword,
+    );
 
-  // Check current password
-  const isMatch = await user.comparePassword(currentPassword);
-  if (!isMatch) {
-    return next(ApiError.badRequest("Current password is incorrect"));
+    // Log activity
+    await ActivityLog.create({
+      tenantId: req.user.tenantId,
+      user: req.user._id,
+      action: "password_change",
+      resourceType: "user",
+      resourceId: req.user._id,
+      description: `Password changed for: ${req.user.email}`,
+      ipAddress: req.ip,
+      userAgent: req.get("User-Agent"),
+    });
+
+    // Clear cookies to force re-login
+    res.clearCookie("accessToken");
+    res.clearCookie("refreshToken");
+
+    successResponse(
+      res,
+      null,
+      "Password changed successfully. Please login again.",
+    );
+  } catch (error) {
+    next(error);
   }
-
-  // Update password
-  user.password = newPassword;
-  user.refreshToken = null; // Invalidate all sessions
-  await user.save();
-
-  // Log activity
-  await ActivityLog.log({
-    user: user._id,
-    action: "password_change",
-    resourceType: "user",
-    resourceId: user._id,
-    description: `Password changed for: ${user.email}`,
-    ipAddress: req.ip,
-    userAgent: req.get("User-Agent"),
-  });
-
-  logger.info(`Password changed for user: ${user.email}`);
-
-  successResponse(
-    res,
-    null,
-    "Password changed successfully. Please login again.",
-  );
 });
 
 /**
@@ -243,62 +250,228 @@ const changePassword = asyncHandler(async (req, res, next) => {
 const forgotPassword = asyncHandler(async (req, res, next) => {
   const { email } = req.body;
 
-  const user = await User.findOne({ email });
+  try {
+    // AuthService handles token generation and hashing
+    await AuthService.initiatePasswordReset(email);
 
-  if (!user) {
-    // Return success even if user doesn't exist (security)
-    return successResponse(
+    // Return same message for security (don't reveal if user exists)
+    successResponse(
+      res,
+      null,
+      "If an account with that email exists, a reset link has been sent.",
+    );
+  } catch (error) {
+    // Still return success message for security
+    successResponse(
       res,
       null,
       "If an account with that email exists, a reset link has been sent.",
     );
   }
-
-  // Generate reset token
-  const resetToken = generateRandomToken();
-  user.passwordResetToken = hashToken(resetToken);
-  user.passwordResetExpires = Date.now() + 30 * 60 * 1000; // 30 minutes
-  await user.save({ validateBeforeSave: false });
-
-  // In production, send email here
-  // For now, just log it
-  logger.info(`Password reset token for ${email}: ${resetToken}`);
-
-  successResponse(
-    res,
-    null,
-    "If an account with that email exists, a reset link has been sent.",
-  );
 });
 
 /**
- * @desc    Public marketing manager registration
- * @route   POST /api/auth/register-marketing-manager
+ * @desc    Create user invite (Admin only)
+ * @route   POST /api/auth/invites
+ * @access  Private (Admin/SuperAdmin)
+ */
+const createInvite = asyncHandler(async (req, res, next) => {
+  const { email, role } = req.body;
+
+  try {
+    // AuthService handles invite creation with role enforcement
+    const inviteResult = await AuthService.createInvite(
+      email,
+      role,
+      req.user._id,
+      req.user.tenantId,
+    );
+
+    // Log activity
+    await ActivityLog.create({
+      tenantId: req.user.tenantId,
+      user: req.user._id,
+      action: "invite_create",
+      resourceType: "invite",
+      resourceId: inviteResult.invite,
+      description: `Invite created for: ${email} as ${role}`,
+      ipAddress: req.ip,
+      userAgent: req.get("User-Agent"),
+    });
+
+    logger.info(`Invite created by ${req.user.email} for ${email} as ${role}`);
+
+    successResponse(
+      res,
+      {
+        invite: {
+          id: inviteResult.invite,
+          email,
+          role,
+          status: "pending",
+        },
+        inviteToken: inviteResult.token,
+      },
+      "Invite created successfully",
+      201,
+    );
+  } catch (error) {
+    next(ApiError.badRequest(error.message));
+  }
+});
+
+/**
+ * @desc    Accept user invite and create account
+ * @route   POST /api/auth/invites/:token/accept
  * @access  Public
  */
-const registerMarketingManager = asyncHandler(async (req, res, next) => {
-  const { name, email, password, phone } = req.body;
+const acceptInvite = asyncHandler(async (req, res, next) => {
+  const { token } = req.params;
+  const { password, userName } = req.body;
 
-  const existingUser = await User.findOne({ email });
+  try {
+    // AuthService accepts invite and auto-logs in user
+    const result = await AuthService.acceptInvite(token, password, userName);
+
+    // Set httpOnly cookies
+    res.cookie("accessToken", result.accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 15 * 60 * 1000,
+    });
+
+    res.cookie("refreshToken", result.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    // Log activity
+    await ActivityLog.create({
+      tenantId: result.user.tenantId,
+      user: result.user.id,
+      action: "invite_accepted",
+      resourceType: "user",
+      resourceId: result.user.id,
+      description: `User accepted invite and created account: ${result.user.email}`,
+      ipAddress: req.ip,
+      userAgent: req.get("User-Agent"),
+    });
+
+    logger.info(
+      `Invite accepted and account created for: ${result.user.email} as ${result.user.role}`,
+    );
+
+    successResponse(
+      res,
+      {
+        user: result.user,
+      },
+      "Account created and logged in successfully",
+      201,
+    );
+  } catch (error) {
+    next(ApiError.badRequest(error.message));
+  }
+});
+
+/**
+ * @desc    Public marketing manager registration (via old system)
+ * @route   POST /api/auth/register-marketing-manager
+ * @access  Public
+ * @deprecated Use invite system instead
+ */
+const registerMarketingManager = asyncHandler(async (req, res, next) => {
+  if (process.env.ENABLE_MARKETING_SELF_REGISTER !== "true") {
+    return next(
+      ApiError.forbidden(
+        "Self-registration is disabled. Ask your admin for an invite.",
+      ),
+    );
+  }
+
+  const { name, email, password, phone, tenantSlug } = req.body;
+
+  const normalizedEmail = String(email || "")
+    .trim()
+    .toLowerCase();
+
+  // Resolve tenant from the provided tenantSlug.
+  let tenant = null;
+
+  if (tenantSlug) {
+    const normalizedSlug = String(tenantSlug).trim().toLowerCase();
+    tenant = await Tenant.findOne({ slug: normalizedSlug, isActive: true })
+      .select("_id name slug settings activeUsers")
+      .lean();
+
+    if (!tenant) {
+      return next(
+        ApiError.badRequest(
+          "Company workspace not found. Please check the Company ID provided by your admin.",
+        ),
+      );
+    }
+
+    // Check workspace user limit
+    if (
+      Number.isFinite(tenant?.settings?.maxUsers) &&
+      tenant.activeUsers >= tenant.settings.maxUsers
+    ) {
+      return next(
+        ApiError.badRequest(
+          "This workspace has reached its user limit. Please contact the admin.",
+        ),
+      );
+    }
+  } else {
+    // Fallback: auto-detect when only one tenant exists (backward compat)
+    const activeTenants = await Tenant.find({ isActive: true }, "_id name slug")
+      .limit(2)
+      .lean();
+
+    if (activeTenants.length === 1) {
+      tenant = activeTenants[0];
+    } else {
+      return next(
+        ApiError.badRequest(
+          "Company ID is required. Please enter the Company ID provided by your admin.",
+        ),
+      );
+    }
+  }
+
+  const existingUser = await User.findOne({
+    tenantId: tenant._id,
+    email: normalizedEmail,
+  });
+
   if (existingUser) {
-    return next(ApiError.conflict("User with this email already exists"));
+    return next(ApiError.conflict("User already exists with this email"));
   }
 
   const user = await User.create({
-    name,
-    email,
+    tenantId: tenant._id,
+    name: String(name || "").trim(),
+    email: normalizedEmail,
     password,
-    phone,
     role: "marketing",
-    isActive: true,
+    phone: String(phone || "").trim(),
+    isActive: false,
+    approvalStatus: "pending",
   });
 
-  await ActivityLog.log({
+  // Do NOT increment tenant.activeUsers until admin approves
+
+  await ActivityLog.create({
+    tenantId: tenant._id,
     user: user._id,
-    action: "user_create",
+    action: "register_marketing_manager_pending",
     resourceType: "user",
     resourceId: user._id,
-    description: `Marketing manager registered: ${user.email}`,
+    description: `Marketing manager registration pending approval: ${user.email}`,
     ipAddress: req.ip,
     userAgent: req.get("User-Agent"),
   });
@@ -311,10 +484,11 @@ const registerMarketingManager = asyncHandler(async (req, res, next) => {
         name: user.name,
         email: user.email,
         role: user.role,
-        avatar: user.avatar,
+        tenantId: user.tenantId,
+        approvalStatus: user.approvalStatus,
       },
     },
-    "Marketing manager registered successfully",
+    "Registration submitted successfully. Please wait for admin approval.",
     201,
   );
 });
@@ -328,42 +502,38 @@ const resetPassword = asyncHandler(async (req, res, next) => {
   const { token } = req.params;
   const { password } = req.body;
 
-  const hashedToken = hashToken(token);
+  try {
+    // AuthService handles validation and password reset
+    const user = await AuthService.resetPassword(token, password);
 
-  const user = await User.findOne({
-    passwordResetToken: hashedToken,
-    passwordResetExpires: { $gt: Date.now() },
-  });
+    // Log activity
+    await ActivityLog.create({
+      tenantId: user.tenantId,
+      user: user._id,
+      action: "password_reset",
+      resourceType: "user",
+      resourceId: user._id,
+      description: `Password reset completed for: ${user.email}`,
+      ipAddress: req.ip,
+      userAgent: req.get("User-Agent"),
+    });
 
-  if (!user) {
-    return next(ApiError.badRequest("Invalid or expired reset token"));
+    logger.info(`Password reset completed for: ${user.email}`);
+
+    // Clear cookies
+    res.clearCookie("accessToken");
+    res.clearCookie("refreshToken");
+
+    successResponse(
+      res,
+      null,
+      "Password reset successful. Please login with your new password.",
+    );
+  } catch (error) {
+    next(
+      ApiError.badRequest(error.message || "Invalid or expired reset token"),
+    );
   }
-
-  // Update password
-  user.password = password;
-  user.passwordResetToken = undefined;
-  user.passwordResetExpires = undefined;
-  user.refreshToken = null;
-  await user.save();
-
-  // Log activity
-  await ActivityLog.log({
-    user: user._id,
-    action: "password_reset",
-    resourceType: "user",
-    resourceId: user._id,
-    description: `Password reset for: ${user.email}`,
-    ipAddress: req.ip,
-    userAgent: req.get("User-Agent"),
-  });
-
-  logger.info(`Password reset completed for: ${user.email}`);
-
-  successResponse(
-    res,
-    null,
-    "Password reset successful. Please login with your new password.",
-  );
 });
 
 export {
@@ -376,4 +546,6 @@ export {
   forgotPassword,
   resetPassword,
   registerMarketingManager,
+  createInvite,
+  acceptInvite,
 };

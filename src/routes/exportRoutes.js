@@ -5,8 +5,10 @@ import {
   exportEvents,
   exportActivityLogs,
   getExportSummary,
+  exportLeads,
+  exportLeadsSummary,
 } from "../controllers/exportController.js";
-import { protect, adminOnly } from "../middlewares/auth.js";
+import { protect, adminOnly, authorize } from "../middlewares/auth.js";
 import { exportLimiter } from "../middlewares/rateLimiter.js";
 import { validate } from "../utils/validators.js";
 
@@ -92,5 +94,38 @@ router.get(
   ],
   exportActivityLogs,
 );
+
+/**
+ * @route   GET /api/export/leads
+ * @desc    Export leads/queries to Excel (XLSX) with optional grouping by website
+ * @access  Private (admin, marketing)
+ */
+router.get(
+  "/leads",
+  authorize("admin", "marketing"),
+  [
+    query("status")
+      .optional()
+      .isIn(["new", "contacted", "interested", "qualified", "closed", "lost"])
+      .withMessage("Invalid status"),
+    query("websiteId").optional().isMongoId().withMessage("Invalid website ID"),
+    query("assignedTo").optional().isMongoId().withMessage("Invalid user ID"),
+    query("startDate").optional().isISO8601().withMessage("Invalid start date"),
+    query("endDate").optional().isISO8601().withMessage("Invalid end date"),
+    query("groupByWebsite")
+      .optional()
+      .isIn(["true", "false"])
+      .withMessage("groupByWebsite must be true or false"),
+    validate,
+  ],
+  exportLeads,
+);
+
+/**
+ * @route   GET /api/export/leads/summary
+ * @desc    Export website query summary to Excel
+ * @access  Private/Admin
+ */
+router.get("/leads/summary", adminOnly, exportLeadsSummary);
 
 export default router;

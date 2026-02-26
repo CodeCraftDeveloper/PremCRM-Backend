@@ -53,7 +53,7 @@ const saveVisitingCardLocally = async (file, clientId) => {
   };
 };
 
-const findExistingContactOwner = async ({ email, phone }) => {
+const findExistingContactOwner = async ({ tenantId, email, phone }) => {
   const normalizedEmail = String(email || "").trim().toLowerCase();
   const normalizedPhone = normalizePhone(phone);
   const or = [];
@@ -71,6 +71,7 @@ const findExistingContactOwner = async ({ email, phone }) => {
   if (or.length === 0) return null;
 
   return Client.findOne({
+    tenantId,
     isActive: true,
     $or: or,
     marketingPerson: { $ne: null },
@@ -79,10 +80,12 @@ const findExistingContactOwner = async ({ email, phone }) => {
     .select("marketingPerson");
 };
 
-const pickLeastLoadedMarketingUser = async () => {
-  const marketers = await User.find({ role: "marketing", isActive: true }).select(
-    "_id",
-  );
+const pickLeastLoadedMarketingUser = async (tenantId) => {
+  const marketers = await User.find({
+    tenantId,
+    role: "marketing",
+    isActive: true,
+  }).select("_id");
 
   if (!marketers.length) {
     throw ApiError.badRequest(
@@ -95,6 +98,7 @@ const pickLeastLoadedMarketingUser = async () => {
     {
       $match: {
         isActive: true,
+        tenantId,
         marketingPerson: { $in: marketerIds },
         followUpStatus: { $nin: ["converted", "lost"] },
       },
@@ -115,14 +119,20 @@ const pickLeastLoadedMarketingUser = async () => {
   }, marketers[0]);
 };
 
-const resolveMarketingAssignee = async ({ requestedMarketingPerson, email, phone }) => {
-  const existing = await findExistingContactOwner({ email, phone });
+const resolveMarketingAssignee = async ({
+  tenantId,
+  requestedMarketingPerson,
+  email,
+  phone,
+}) => {
+  const existing = await findExistingContactOwner({ tenantId, email, phone });
   if (existing?.marketingPerson) {
     return existing.marketingPerson;
   }
 
   if (requestedMarketingPerson) {
     const marketer = await User.findOne({
+      tenantId,
       _id: requestedMarketingPerson,
       role: "marketing",
       isActive: true,
@@ -135,13 +145,14 @@ const resolveMarketingAssignee = async ({ requestedMarketingPerson, email, phone
     return marketer._id;
   }
 
-  const leastLoaded = await pickLeastLoadedMarketingUser();
+  const leastLoaded = await pickLeastLoadedMarketingUser(tenantId);
   return leastLoaded._id;
 };
 
-const resolveFollowUpOwnerForExistingClient = async (client) => {
+const resolveFollowUpOwnerForExistingClient = async (client, tenantId) => {
   if (client.createdBy) {
     const creator = await User.findOne({
+      tenantId,
       _id: client.createdBy,
       role: "marketing",
       isActive: true,
@@ -151,6 +162,7 @@ const resolveFollowUpOwnerForExistingClient = async (client) => {
 
   if (client.marketingPerson) {
     const currentOwner = await User.findOne({
+      tenantId,
       _id: client.marketingPerson,
       role: "marketing",
       isActive: true,
@@ -159,6 +171,7 @@ const resolveFollowUpOwnerForExistingClient = async (client) => {
   }
 
   return resolveMarketingAssignee({
+    tenantId,
     requestedMarketingPerson: null,
     email: client.email,
     phone: client.phone,
@@ -171,6 +184,7 @@ const resolveFollowUpOwnerForExistingClient = async (client) => {
  * @access  Private
  */
 const getClients = asyncHandler(async (req, res, next) => {
+  const tenantId = req.user.tenantId;
   const {
     page = 1,
     limit = 10,
@@ -186,7 +200,7 @@ const getClients = asyncHandler(async (req, res, next) => {
   } = req.query;
 
   // Build query
-  const query = { isActive: true };
+  const query = { tenantId, isActive: true };
 
   // Role-based filtering: Marketing users can only see their own clients
   if (req.user.role === "marketing") {
@@ -248,7 +262,10 @@ const getClients = asyncHandler(async (req, res, next) => {
  * @access  Private
  */
 const getClient = asyncHandler(async (req, res, next) => {
-  const client = await Client.findById(req.params.id)
+  const client = await Client.findOne({
+    _id: req.params.id,
+    tenantId: req.user.tenantId,
+  })
     .populate("event", "name description status startDate endDate location")
     .populate("marketingPerson", "name email avatar phone")
     .populate("createdBy", "name email")
@@ -304,6 +321,7 @@ const getClient = asyncHandler(async (req, res, next) => {
  * @access  Private
  */
 const createClient = asyncHandler(async (req, res, next) => {
+  const tenantId = req.user.tenantId;
   const {
     name,
     companyName,
@@ -325,16 +343,23 @@ const createClient = asyncHandler(async (req, res, next) => {
   } = req.body;
 
   // Verify event exists and is active
-  const eventDoc = await Event.findById(event);
+  const eventDoc = await Event.findOne({ _id: event, tenantId });
   if (!eventDoc) {
     return next(ApiError.notFound("Event not found"));
   }
 
-  const existingOwnerClient = await findExistingContactOwner({ email, phone });
+  const existingOwnerClient = await findExistingContactOwner({
+    tenantId,
+    email,
+    phone,
+  });
   if (req.user.role === "marketing" && existingOwnerClient?.marketingPerson) {
     const existingOwnerId = String(existingOwnerClient.marketingPerson);
     if (existingOwnerId !== String(req.user._id)) {
-      const existingOwner = await User.findById(existingOwnerId).select("name email");
+      const existingOwner = await User.findOne({
+        _id: existingOwnerId,
+        tenantId,
+      }).select("name email");
       return next(
         ApiError.conflict(
           `This client is already assigned to ${existingOwner?.name || "another marketing manager"}. Please update the existing client instead of creating a duplicate.`,
@@ -346,6 +371,7 @@ const createClient = asyncHandler(async (req, res, next) => {
   const assignedMarketingPerson =
     req.user.role === "admin"
       ? await resolveMarketingAssignee({
+          tenantId,
           requestedMarketingPerson: marketingPerson,
           email,
           phone,
@@ -354,6 +380,7 @@ const createClient = asyncHandler(async (req, res, next) => {
 
   // Create client
   const client = await Client.create({
+    tenantId,
     name,
     companyName,
     email,
@@ -386,6 +413,7 @@ const createClient = asyncHandler(async (req, res, next) => {
 
   // Log activity
   await ActivityLog.log({
+    tenantId,
     user: req.user._id,
     action: "client_create",
     resourceType: "client",
@@ -402,7 +430,7 @@ const createClient = asyncHandler(async (req, res, next) => {
 
   logger.info(`Client created: ${client.name} by ${req.user.email}`);
 
-  const populatedClient = await Client.findById(client._id)
+  const populatedClient = await Client.findOne({ _id: client._id, tenantId })
     .populate("event", "name status")
     .populate("marketingPerson", "name email")
     .populate("createdBy", "name email")
@@ -422,6 +450,7 @@ const createClient = asyncHandler(async (req, res, next) => {
  * @access  Private
  */
 const updateClient = asyncHandler(async (req, res, next) => {
+  const tenantId = req.user.tenantId;
   const {
     name,
     companyName,
@@ -442,7 +471,7 @@ const updateClient = asyncHandler(async (req, res, next) => {
     lastContactedDate,
   } = req.body;
 
-  const client = await Client.findById(req.params.id);
+  const client = await Client.findOne({ _id: req.params.id, tenantId });
 
   if (!client) {
     return next(ApiError.notFound("Client not found"));
@@ -456,15 +485,25 @@ const updateClient = asyncHandler(async (req, res, next) => {
     return next(ApiError.forbidden("Access denied"));
   }
 
+  if (event) {
+    const eventDoc = await Event.findOne({ _id: event, tenantId });
+    if (!eventDoc) {
+      return next(ApiError.notFound("Event not found"));
+    }
+  }
+
   // Track status change
   const oldStatus = client.followUpStatus;
   const statusChanged = followUpStatus && followUpStatus !== oldStatus;
 
-  let marketingPersonForUpdate = await resolveFollowUpOwnerForExistingClient(client);
+  let marketingPersonForUpdate = await resolveFollowUpOwnerForExistingClient(
+    client,
+    tenantId,
+  );
 
   // Update client
-  const updatedClient = await Client.findByIdAndUpdate(
-    req.params.id,
+  const updatedClient = await Client.findOneAndUpdate(
+    { _id: req.params.id, tenantId },
     {
       name,
       companyName,
@@ -504,6 +543,7 @@ const updateClient = asyncHandler(async (req, res, next) => {
 
     // Log status change
     await ActivityLog.log({
+      tenantId,
       user: req.user._id,
       action: "client_status_change",
       resourceType: "client",
@@ -517,6 +557,7 @@ const updateClient = asyncHandler(async (req, res, next) => {
 
   // Log activity
   await ActivityLog.log({
+    tenantId,
     user: req.user._id,
     action: "client_update",
     resourceType: "client",
@@ -545,7 +586,8 @@ const updateClient = asyncHandler(async (req, res, next) => {
  * @access  Private
  */
 const deleteClient = asyncHandler(async (req, res, next) => {
-  const client = await Client.findById(req.params.id);
+  const tenantId = req.user.tenantId;
+  const client = await Client.findOne({ _id: req.params.id, tenantId });
 
   if (!client) {
     return next(ApiError.notFound("Client not found"));
@@ -565,6 +607,7 @@ const deleteClient = asyncHandler(async (req, res, next) => {
 
   // Log activity
   await ActivityLog.log({
+    tenantId,
     user: req.user._id,
     action: "client_delete",
     resourceType: "client",
@@ -589,7 +632,8 @@ const deleteClient = asyncHandler(async (req, res, next) => {
  * @access  Private
  */
 const uploadVisitingCard = asyncHandler(async (req, res, next) => {
-  const client = await Client.findById(req.params.id);
+  const tenantId = req.user.tenantId;
+  const client = await Client.findOne({ _id: req.params.id, tenantId });
 
   if (!client) {
     return next(ApiError.notFound("Client not found"));
@@ -652,6 +696,7 @@ const uploadVisitingCard = asyncHandler(async (req, res, next) => {
 
   // Log activity
   await ActivityLog.log({
+    tenantId,
     user: req.user._id,
     action: "file_upload",
     resourceType: "client",
@@ -679,10 +724,21 @@ const getPendingFollowUps = asyncHandler(async (req, res, next) => {
   const { days = 7 } = req.query;
   const parsedDays = Number.parseInt(days, 10);
   const safeDays = Number.isNaN(parsedDays) || parsedDays < 1 ? 7 : parsedDays;
+  const followUpFilter = {
+    tenantId: req.user.tenantId,
+    isActive: true,
+    followUpStatus: { $nin: ["converted", "lost"] },
+    nextFollowUpDate: {
+      $ne: null,
+      $lte: new Date(Date.now() + safeDays * 24 * 60 * 60 * 1000),
+    },
+  };
+  if (req.user.role === "marketing") {
+    followUpFilter.marketingPerson = req.user._id;
+  }
 
-  const userId = req.user.role === "marketing" ? req.user._id : null;
-
-  const clients = await Client.findPendingFollowUps(userId, safeDays)
+  const clients = await Client.find(followUpFilter)
+    .sort({ nextFollowUpDate: 1 })
     .populate("event", "name")
     .populate("marketingPerson", "name email")
     .limit(50);
@@ -698,7 +754,7 @@ const getPendingFollowUps = asyncHandler(async (req, res, next) => {
 const getClientStats = asyncHandler(async (req, res, next) => {
   const { event, marketingPerson } = req.query;
 
-  const filter = { isActive: true };
+  const filter = { tenantId: req.user.tenantId, isActive: true };
 
   if (req.user.role === "marketing") {
     filter.marketingPerson = req.user._id;
@@ -720,18 +776,30 @@ const getClientStats = asyncHandler(async (req, res, next) => {
  */
 const bulkAssignClients = asyncHandler(async (req, res, next) => {
   const { clientIds, marketingPersonId } = req.body;
+  const tenantId = req.user.tenantId;
 
   if (!clientIds || !Array.isArray(clientIds) || clientIds.length === 0) {
     return next(ApiError.badRequest("Please provide client IDs"));
   }
 
+  const marketer = await User.findOne({
+    _id: marketingPersonId,
+    tenantId,
+    role: "marketing",
+    isActive: true,
+  }).select("_id");
+  if (!marketer) {
+    return next(ApiError.badRequest("Selected marketing person is invalid"));
+  }
+
   const result = await Client.updateMany(
-    { _id: { $in: clientIds } },
+    { _id: { $in: clientIds }, tenantId },
     { marketingPerson: marketingPersonId },
   );
 
   // Log activity
   await ActivityLog.log({
+    tenantId,
     user: req.user._id,
     action: "client_assign",
     resourceType: "client",

@@ -10,6 +10,8 @@ import {
   forgotPassword,
   resetPassword,
   registerMarketingManager,
+  createInvite,
+  acceptInvite,
 } from "../controllers/authController.js";
 import { protect } from "../middlewares/auth.js";
 import {
@@ -17,6 +19,7 @@ import {
   passwordResetLimiter,
 } from "../middlewares/rateLimiter.js";
 import { validate, commonValidations } from "../utils/validators.js";
+import { authorize } from "../shared/middlewares/rbacMiddleware.js";
 
 const router = express.Router();
 
@@ -31,6 +34,13 @@ router.post(
   [
     commonValidations.email(),
     body("password").notEmpty().withMessage("Password is required"),
+    body("tenantSlug")
+      .optional({ checkFalsy: true })
+      .trim()
+      .matches(/^[a-z0-9-]{2,80}$/)
+      .withMessage(
+        "tenantSlug can contain lowercase letters, numbers, and hyphens only",
+      ),
     validate,
   ],
   login,
@@ -54,6 +64,13 @@ router.post(
     commonValidations.email(),
     commonValidations.password(),
     commonValidations.phone("phone"),
+    body("tenantSlug")
+      .optional({ checkFalsy: true })
+      .trim()
+      .matches(/^[a-z0-9-]{2,80}$/)
+      .withMessage(
+        "Company ID can contain lowercase letters, numbers, and hyphens only",
+      ),
     validate,
   ],
   registerMarketingManager,
@@ -67,7 +84,10 @@ router.post(
 router.post(
   "/refresh-token",
   [
-    body("refreshToken").notEmpty().withMessage("Refresh token is required"),
+    body("refreshToken")
+      .optional()
+      .notEmpty()
+      .withMessage("Refresh token cannot be empty"),
     validate,
   ],
   refreshAccessToken,
@@ -160,6 +180,48 @@ router.post(
     validate,
   ],
   resetPassword,
+);
+
+/**
+ * @route   POST /api/auth/invites
+ * @desc    Create user invite (Admin only)
+ * @access  Private (Admin/SuperAdmin)
+ */
+router.post(
+  "/invites",
+  protect,
+  authorize("admin", "superadmin"),
+  [
+    commonValidations.email("email"),
+    body("role")
+      .notEmpty()
+      .withMessage("Role is required")
+      .isIn(["admin", "marketing", "user"])
+      .withMessage("Invalid role"),
+    validate,
+  ],
+  createInvite,
+);
+
+/**
+ * @route   POST /api/auth/invites/:token/accept
+ * @desc    Accept user invite and create account
+ * @access  Public
+ */
+router.post(
+  "/invites/:token/accept",
+  authLimiter,
+  [
+    commonValidations.password("password"),
+    body("userName")
+      .trim()
+      .notEmpty()
+      .withMessage("User name is required")
+      .isLength({ min: 2, max: 100 })
+      .withMessage("User name must be 2-100 characters"),
+    validate,
+  ],
+  acceptInvite,
 );
 
 export default router;

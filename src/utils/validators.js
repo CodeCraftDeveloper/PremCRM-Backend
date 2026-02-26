@@ -52,7 +52,7 @@ const commonValidations = {
 
   phone: (field = "phone") =>
     body(field)
-      .optional()
+      .optional({ checkFalsy: true })
       .trim()
       .isMobilePhone("any")
       .withMessage("Invalid phone number"),
