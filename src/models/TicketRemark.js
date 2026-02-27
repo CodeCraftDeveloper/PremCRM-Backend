@@ -5,6 +5,7 @@ const ticketRemarkSchema = new mongoose.Schema(
     tenantId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Tenant",
+      required: [true, "Tenant ID is required"],
       index: true,
     },
     ticket: {
@@ -118,10 +119,15 @@ ticketRemarkSchema.index({ user: 1 });
 ticketRemarkSchema.index({ type: 1 });
 
 // ─── Static: Get remarks timeline ─────────────────────────
-ticketRemarkSchema.statics.getTimeline = function (ticketId, options = {}) {
+ticketRemarkSchema.statics.getTimeline = function (
+  tenantId,
+  ticketId,
+  options = {},
+) {
+  if (!tenantId) throw new Error("tenantId is required for getTimeline");
   const { limit = 50, page = 1, types = null } = options;
 
-  const query = { ticket: ticketId };
+  const query = { tenantId, ticket: ticketId };
   if (types && types.length > 0) {
     query.type = { $in: types };
   }
@@ -137,17 +143,19 @@ ticketRemarkSchema.statics.getTimeline = function (ticketId, options = {}) {
 
 // ─── Static: Create status change remark ──────────────────
 ticketRemarkSchema.statics.createStatusChangeRemark = async function (
+  tenantId,
   ticketId,
   userId,
   previousStatus,
   newStatus,
   note = "",
-  tenantId = null,
 ) {
+  if (!tenantId)
+    throw new Error("tenantId is required for createStatusChangeRemark");
   return this.create({
+    tenantId,
     ticket: ticketId,
     user: userId,
-    ...(tenantId ? { tenantId } : {}),
     content:
       note || `Status changed from ${previousStatus || "none"} to ${newStatus}`,
     type: "status_change",
@@ -158,16 +166,18 @@ ticketRemarkSchema.statics.createStatusChangeRemark = async function (
 
 // ─── Static: Create assignment change remark ──────────────
 ticketRemarkSchema.statics.createAssignmentRemark = async function (
+  tenantId,
   ticketId,
   userId,
   assigneeName,
   note = "",
-  tenantId = null,
 ) {
+  if (!tenantId)
+    throw new Error("tenantId is required for createAssignmentRemark");
   return this.create({
+    tenantId,
     ticket: ticketId,
     user: userId,
-    ...(tenantId ? { tenantId } : {}),
     content: note || `Ticket assigned to ${assigneeName}`,
     type: "assignment_change",
   });

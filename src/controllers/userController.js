@@ -109,7 +109,10 @@ const getUser = asyncHandler(async (req, res, next) => {
     .limit(10);
 
   // Get user's client statistics
-  const clientStats = await Client.getStats({ marketingPerson: user._id });
+  const clientStats = await Client.getStats({
+    tenantId: req.user.tenantId,
+    marketingPerson: user._id,
+  });
 
   successResponse(res, { user, recentActivity, clientStats });
 });
@@ -274,6 +277,7 @@ const deleteUser = asyncHandler(async (req, res, next) => {
   // Check if user has clients
   const clientCount = await Client.countDocuments({
     marketingPerson: user._id,
+    tenantId: req.user.tenantId,
   });
   if (clientCount > 0) {
     return next(

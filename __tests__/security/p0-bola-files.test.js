@@ -105,6 +105,7 @@ describe("P0-1: Ticket Remark BOLA — cross-tenant isolation", () => {
     });
 
     remarkA = await TicketRemark.create({
+      tenantId: tenantA.tenant._id,
       ticket: ticketA._id,
       user: tenantA.user._id,
       content: "Original remark from Tenant A",

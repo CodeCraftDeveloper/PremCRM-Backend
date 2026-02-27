@@ -5,6 +5,7 @@ const remarkSchema = new mongoose.Schema(
     tenantId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Tenant",
+      required: [true, "Tenant ID is required"],
       index: true,
     },
     client: {
@@ -98,10 +99,11 @@ remarkSchema.index({ type: 1 });
 remarkSchema.index({ createdAt: -1 });
 
 // Static method to get remarks timeline
-remarkSchema.statics.getTimeline = function (clientId, options = {}) {
+remarkSchema.statics.getTimeline = function (tenantId, clientId, options = {}) {
+  if (!tenantId) throw new Error("tenantId is required for getTimeline");
   const { limit = 50, page = 1, types = null } = options;
 
-  const query = { client: clientId };
+  const query = { tenantId, client: clientId };
   if (types && types.length > 0) {
     query.type = { $in: types };
   }
@@ -115,12 +117,16 @@ remarkSchema.statics.getTimeline = function (clientId, options = {}) {
 
 // Static method to create status change remark
 remarkSchema.statics.createStatusChangeRemark = async function (
+  tenantId,
   clientId,
   userId,
   previousStatus,
   newStatus,
 ) {
+  if (!tenantId)
+    throw new Error("tenantId is required for createStatusChangeRemark");
   return this.create({
+    tenantId,
     client: clientId,
     user: userId,
     content: `Status changed from "${previousStatus}" to "${newStatus}"`,

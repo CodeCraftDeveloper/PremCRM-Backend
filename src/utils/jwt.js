@@ -29,7 +29,7 @@ const generateRefreshToken = (payload) => {
  * @returns {Object} Decoded payload
  */
 const verifyAccessToken = (token) => {
-  return jwt.verify(token, process.env.JWT_SECRET);
+  return jwt.verify(token, process.env.JWT_SECRET, { algorithms: ["HS256"] });
 };
 
 /**
@@ -38,7 +38,9 @@ const verifyAccessToken = (token) => {
  * @returns {Object} Decoded payload
  */
 const verifyRefreshToken = (token) => {
-  return jwt.verify(token, process.env.JWT_REFRESH_SECRET);
+  return jwt.verify(token, process.env.JWT_REFRESH_SECRET, {
+    algorithms: ["HS256"],
+  });
 };
 
 /**

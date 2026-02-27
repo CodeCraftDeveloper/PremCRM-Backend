@@ -234,8 +234,15 @@ clientSchema.pre("findOneAndUpdate", function () {
 });
 
 // Static method to find pending follow-ups
-clientSchema.statics.findPendingFollowUps = function (userId = null, days = 7) {
+clientSchema.statics.findPendingFollowUps = function (
+  tenantId,
+  userId = null,
+  days = 7,
+) {
+  if (!tenantId)
+    throw new Error("tenantId is required for findPendingFollowUps");
   const query = {
+    tenantId,
     isActive: true,
     followUpStatus: { $nin: ["converted", "lost"] },
     nextFollowUpDate: {
@@ -253,6 +260,8 @@ clientSchema.statics.findPendingFollowUps = function (userId = null, days = 7) {
 
 // Static method to get statistics
 clientSchema.statics.getStats = async function (filter = {}) {
+  if (!filter.tenantId)
+    throw new Error("tenantId is required in filter for getStats");
   const matchStage = { isActive: true, ...filter };
 
   const stats = await this.aggregate([

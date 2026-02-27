@@ -279,7 +279,7 @@ const getClientTimeline = asyncHandler(async (req, res, next) => {
     return next(ApiError.forbidden("Access denied"));
   }
 
-  const timeline = await Remark.getTimeline(clientId, {
+  const timeline = await Remark.getTimeline(req.user.tenantId, clientId, {
     limit: parseInt(limit),
     page: parseInt(page),
   });

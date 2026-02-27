@@ -220,12 +220,11 @@ describe("TicketRemark static helpers", () => {
 
   it("createStatusChangeRemark stores tenantId", async () => {
     const remark = await TicketRemark.createStatusChangeRemark(
+      ctx.tenant._id,
       ticket._id,
       ctx.user._id,
       "open",
       "in_progress",
-      "",
-      ctx.tenant._id,
     );
 
     expect(remark.tenantId).toBeDefined();
@@ -235,11 +234,10 @@ describe("TicketRemark static helpers", () => {
 
   it("createAssignmentRemark stores tenantId", async () => {
     const remark = await TicketRemark.createAssignmentRemark(
+      ctx.tenant._id,
       ticket._id,
       ctx.user._id,
       "Alice Doe",
-      undefined,
-      ctx.tenant._id,
     );
 
     expect(remark.tenantId).toBeDefined();
@@ -247,16 +245,16 @@ describe("TicketRemark static helpers", () => {
     expect(remark.type).toBe("assignment_change");
   });
 
-  it("static helpers omit tenantId when not provided", async () => {
-    const remark = await TicketRemark.createStatusChangeRemark(
-      ticket._id,
-      ctx.user._id,
-      "open",
-      "closed",
-    );
-
-    // tenantId is not set (undefined/null) when omitted
-    expect(remark.tenantId == null).toBe(true);
+  it("createStatusChangeRemark requires tenantId", async () => {
+    await expect(
+      TicketRemark.createStatusChangeRemark(
+        null,
+        ticket._id,
+        ctx.user._id,
+        "open",
+        "closed",
+      ),
+    ).rejects.toThrow("tenantId is required");
   });
 });
 

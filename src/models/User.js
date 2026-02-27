@@ -144,8 +144,9 @@ userSchema.methods.changedPasswordAfter = function (JWTTimestamp) {
 };
 
 // Static method to find active users
-userSchema.statics.findActiveUsers = function (role = null) {
-  const query = { isActive: true };
+userSchema.statics.findActiveUsers = function (tenantId, role = null) {
+  if (!tenantId) throw new Error("tenantId is required for findActiveUsers");
+  const query = { tenantId, isActive: true };
   if (role) query.role = role;
   return this.find(query);
 };

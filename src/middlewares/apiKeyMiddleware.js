@@ -184,8 +184,8 @@ export const validateIpWhitelist = async (req, res, next) => {
     next();
   } catch (error) {
     logger.error(`IP whitelist validation error: ${error.message}`);
-    // Don't block if validation fails
-    next();
+    // Fail-closed: deny access if validation errors
+    return next(ApiError.forbidden("IP whitelist validation failed"));
   }
 };
 

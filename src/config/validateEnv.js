@@ -41,6 +41,17 @@ const validateEnv = (logger) => {
     throw new Error(msg);
   }
 
+  // Enforce minimum length for JWT secrets (at least 32 characters)
+  const JWT_MIN_LENGTH = 32;
+  for (const key of ["JWT_SECRET", "JWT_REFRESH_SECRET"]) {
+    const value = process.env[key] || "";
+    if (value.length < JWT_MIN_LENGTH) {
+      const msg = `${key} is too short (${value.length} chars). Minimum ${JWT_MIN_LENGTH} characters required.`;
+      console.error(`\n❌  ${msg}\n`);
+      throw new Error(msg);
+    }
+  }
+
   // Warn for incomplete optional groups
   for (const group of OPTIONAL_GROUPS) {
     const present = group.vars.filter((v) => process.env[v.key]);

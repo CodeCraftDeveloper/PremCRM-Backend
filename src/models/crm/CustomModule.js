@@ -67,6 +67,11 @@ const customModuleSchema = new mongoose.Schema(
       required: true,
       trim: true,
       maxlength: 64,
+      validate: {
+        validator: (v) => /^crm_[a-z0-9_]{1,50}$/.test(v),
+        message:
+          "collectionName must match pattern: crm_<lowercase_alphanumeric_underscores> (max 54 chars)",
+      },
     },
     /** Name field used as the record's display name */
     primaryField: {

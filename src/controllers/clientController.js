@@ -412,6 +412,7 @@ const createClient = asyncHandler(async (req, res, next) => {
     await Remark.create({
       client: client._id,
       user: req.user._id,
+      tenantId,
       content: `Initial note: ${notes}`,
       type: "note",
     });
@@ -559,6 +560,7 @@ const updateClient = asyncHandler(async (req, res, next) => {
   // Create status change remark if status changed
   if (statusChanged) {
     await Remark.createStatusChangeRemark(
+      tenantId,
       client._id,
       req.user._id,
       oldStatus,

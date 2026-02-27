@@ -147,17 +147,21 @@ eventSchema.pre("findOneAndUpdate", async function () {
 });
 
 // Static method to find active events
-eventSchema.statics.findActiveEvents = function () {
+eventSchema.statics.findActiveEvents = function (tenantId) {
+  if (!tenantId) throw new Error("tenantId is required for findActiveEvents");
   const now = new Date();
   return this.find({
+    tenantId,
     status: { $in: ["upcoming", "active"] },
     endDate: { $gte: now },
   }).sort({ startDate: 1 });
 };
 
 // Static method to find events by date range
-eventSchema.statics.findByDateRange = function (startDate, endDate) {
+eventSchema.statics.findByDateRange = function (tenantId, startDate, endDate) {
+  if (!tenantId) throw new Error("tenantId is required for findByDateRange");
   return this.find({
+    tenantId,
     $or: [
       { startDate: { $gte: startDate, $lte: endDate } },
       { endDate: { $gte: startDate, $lte: endDate } },

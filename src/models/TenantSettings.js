@@ -133,8 +133,7 @@ const tenantSettingsSchema = new mongoose.Schema(
   },
 );
 
-// Index for fast lookup
-tenantSettingsSchema.index({ tenantId: 1 }, { unique: true });
+// tenantId unique index is defined at field level (unique: true) — no duplicate index needed
 
 /**
  * Get or create settings for a tenant (lazy initialization).

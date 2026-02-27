@@ -364,12 +364,12 @@ export const updateTicketStatus = asyncHandler(async (req, res, next) => {
     // Create status change remark
     const TicketRemark = (await import("../models/TicketRemark.js")).default;
     await TicketRemark.createStatusChangeRemark(
+      req.user.tenantId,
       ticket._id,
       req.user._id,
       previousStatus,
       status,
       note,
-      req.user.tenantId,
     );
 
     const updatedTicket = await Ticket.findById(ticket._id)
@@ -452,11 +452,10 @@ export const assignTicket = asyncHandler(async (req, res, next) => {
     // Create assignment remark
     const TicketRemark = (await import("../models/TicketRemark.js")).default;
     await TicketRemark.createAssignmentRemark(
+      req.user.tenantId,
       ticket._id,
       req.user._id,
       assignee.name,
-      undefined,
-      req.user.tenantId,
     );
 
     const updatedTicket = await Ticket.findById(ticket._id)

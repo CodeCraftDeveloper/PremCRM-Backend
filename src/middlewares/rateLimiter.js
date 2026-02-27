@@ -1,10 +1,9 @@
 import rateLimit from "express-rate-limit";
 
-const isDevelopment = process.env.NODE_ENV === "development";
-const isRateLimitDisabled = process.env.DISABLE_RATE_LIMIT === "true";
+const isTestEnv = process.env.NODE_ENV === "test";
 
 const createLimiter = (options) => {
-  if (isDevelopment || isRateLimitDisabled) {
+  if (isTestEnv) {
     return (req, res, next) => next();
   }
 

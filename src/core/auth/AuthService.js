@@ -125,16 +125,16 @@ class AuthService {
         throw new Error("Account has been deactivated");
       }
 
+      // Check brute force protection BEFORE password comparison
+      const attempts = await this.checkBruteForce(normalizedEmail);
+      if (attempts >= 5) {
+        throw new Error("Too many failed attempts. Try again later.");
+      }
+
       // Verify password
       const isValidPassword = await bcrypt.compare(password, user.password);
       if (!isValidPassword) {
         throw new Error("Invalid credentials");
-      }
-
-      // Check brute force protection
-      const attempts = await this.checkBruteForce(normalizedEmail);
-      if (attempts >= 5) {
-        throw new Error("Too many failed attempts. Try again later.");
       }
 
       // Legacy data guard: ensure tenant context exists before session creation.
@@ -162,8 +162,8 @@ class AuthService {
       // Generate tokens
       const tokens = this.generateTokens(user, session._id);
 
-      // Update user
-      user.refreshToken = tokens.refreshToken;
+      // Update user — store hashed refresh token
+      user.refreshToken = this.hashToken(tokens.refreshToken);
       user.lastLogin = new Date();
       await user.save({ validateBeforeSave: false });
 
@@ -272,7 +272,7 @@ class AuthService {
       const decoded = verifyRefreshToken(refreshToken);
       const user = await User.findById(decoded.id).select("+refreshToken");
 
-      if (!user || user.refreshToken !== refreshToken) {
+      if (!user || user.refreshToken !== this.hashToken(refreshToken)) {
         throw new Error("Invalid refresh token");
       }
 
@@ -295,7 +295,7 @@ class AuthService {
       );
       const tokens = this.generateTokens(user, sessions[0]?._id);
 
-      user.refreshToken = tokens.refreshToken;
+      user.refreshToken = this.hashToken(tokens.refreshToken);
       await user.save({ validateBeforeSave: false });
 
       logger.info(`Token refreshed for user: ${user._id}`);
@@ -340,7 +340,8 @@ class AuthService {
       // TODO: Send email with resetToken (separate channel)
       // sendPasswordResetEmail(email, resetToken);
 
-      return resetToken; // Return to caller (for email sending)
+      // Do NOT return the raw token — it must be delivered via email only
+      return { message: "Password reset initiated" };
     } catch (error) {
       logger.error(`Error initiating password reset: ${error.message}`);
       throw error;
@@ -537,7 +538,7 @@ class AuthService {
 
       const tokens = this.generateTokens(user, session._id);
 
-      user.refreshToken = tokens.refreshToken;
+      user.refreshToken = this.hashToken(tokens.refreshToken);
       await user.save({ validateBeforeSave: false });
 
       logger.info(`Invite accepted by ${user.email}`);

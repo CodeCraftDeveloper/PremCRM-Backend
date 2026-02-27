@@ -20,17 +20,25 @@ const mapAuthErrorToApiError = (error) => {
 
   const message = String(error?.message || "Authentication failed");
   const normalizedMessage = message.toLowerCase();
+  const errorName = String(error?.name || "");
 
   if (message.toLowerCase().includes("too many failed attempts")) {
     return ApiError.tooManyRequests(message);
   }
 
   const isAuthFailure =
+    errorName === "JsonWebTokenError" ||
+    errorName === "TokenExpiredError" ||
+    errorName === "NotBeforeError" ||
     normalizedMessage.includes("invalid credentials") ||
     normalizedMessage.includes("pending admin approval") ||
     normalizedMessage.includes("deactivated") ||
     normalizedMessage.includes("invalid refresh token") ||
-    normalizedMessage.includes("refresh token required");
+    normalizedMessage.includes("refresh token required") ||
+    normalizedMessage.includes("invalid signature") ||
+    normalizedMessage.includes("jwt malformed") ||
+    normalizedMessage.includes("jwt expired") ||
+    normalizedMessage.includes("jwt not active");
 
   if (isAuthFailure) {
     return ApiError.unauthorized(message);
@@ -148,6 +156,14 @@ const refreshAccessToken = asyncHandler(async (req, res, next) => {
 
     successResponse(res, {}, "Token refreshed successfully");
   } catch (error) {
+    // If refresh fails, clear stale cookies so client can re-auth cleanly.
+    const cookieOpts = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+    };
+    res.clearCookie("accessToken", cookieOpts);
+    res.clearCookie("refreshToken", cookieOpts);
     return next(mapAuthErrorToApiError(error));
   }
 });
@@ -200,9 +216,14 @@ const logout = asyncHandler(async (req, res, next) => {
       userAgent: req.get("User-Agent"),
     });
 
-    // Clear cookies
-    res.clearCookie("accessToken");
-    res.clearCookie("refreshToken");
+    // Clear cookies — must match the options used when setting them
+    const cookieOpts = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+    };
+    res.clearCookie("accessToken", cookieOpts);
+    res.clearCookie("refreshToken", cookieOpts);
 
     successResponse(res, null, "Logged out successfully");
   } catch (error) {
@@ -282,9 +303,14 @@ const changePassword = asyncHandler(async (req, res, next) => {
       userAgent: req.get("User-Agent"),
     });
 
-    // Clear cookies to force re-login
-    res.clearCookie("accessToken");
-    res.clearCookie("refreshToken");
+    // Clear cookies to force re-login — must match the options used when setting them
+    const cookieOpts = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+    };
+    res.clearCookie("accessToken", cookieOpts);
+    res.clearCookie("refreshToken", cookieOpts);
 
     successResponse(
       res,
@@ -577,9 +603,14 @@ const resetPassword = asyncHandler(async (req, res, next) => {
 
     logger.info(`Password reset completed for: ${user.email}`);
 
-    // Clear cookies
-    res.clearCookie("accessToken");
-    res.clearCookie("refreshToken");
+    // Clear cookies — must match the options used when setting them
+    const cookieOpts = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+    };
+    res.clearCookie("accessToken", cookieOpts);
+    res.clearCookie("refreshToken", cookieOpts);
 
     successResponse(
       res,
