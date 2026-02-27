@@ -135,8 +135,8 @@ export const trackLogout = async (req, res, next) => {
  */
 export const getMarketingUsersStatus = async (req, res) => {
   try {
-    // Only admins can view this
-    if (req.user.role !== "admin") {
+    // Only admins and superadmins can view this
+    if (!["admin", "superadmin"].includes(req.user.role)) {
       return res.status(403).json({
         success: false,
         message: "Only admins can view user status",
@@ -222,8 +222,8 @@ export const getMarketingUsersStatus = async (req, res) => {
  */
 export const getMarketingPerformance = async (req, res) => {
   try {
-    // Only admins can view this
-    if (req.user.role !== "admin") {
+    // Only admins and superadmins can view this
+    if (!["admin", "superadmin"].includes(req.user.role)) {
       return res.status(403).json({
         success: false,
         message: "Only admins can view performance metrics",
@@ -309,12 +309,14 @@ export const getMarketingPerformance = async (req, res) => {
           createdBy: user._id,
         });
 
-        const rangeStart = Object.keys(dateFilter).length > 0
-          ? new Date(dateFilter.$gte || new Date(0))
-          : new Date(todayStart.getTime() - 6 * 24 * 60 * 60 * 1000);
-        const rangeEnd = Object.keys(dateFilter).length > 0
-          ? new Date(dateFilter.$lte || now)
-          : now;
+        const rangeStart =
+          Object.keys(dateFilter).length > 0
+            ? new Date(dateFilter.$gte || new Date(0))
+            : new Date(todayStart.getTime() - 6 * 24 * 60 * 60 * 1000);
+        const rangeEnd =
+          Object.keys(dateFilter).length > 0
+            ? new Date(dateFilter.$lte || now)
+            : now;
         const dayWiseFrom = getStartOfDay(rangeStart);
         const dayWiseTo = getStartOfDay(rangeEnd);
 
@@ -377,7 +379,10 @@ export const getMarketingPerformance = async (req, res) => {
           sessionAgg.map((entry) => [
             entry._id,
             {
-              totalOnlineSeconds: Math.max(0, Math.floor(entry.totalOnlineSeconds || 0)),
+              totalOnlineSeconds: Math.max(
+                0,
+                Math.floor(entry.totalOnlineSeconds || 0),
+              ),
               sessions: entry.sessions || 0,
             },
           ]),
@@ -474,7 +479,10 @@ export const getMyMarketingPerformance = async (req, res) => {
     if (startDate) dateFilter.$gte = new Date(startDate);
     if (endDate) dateFilter.$lte = new Date(endDate);
 
-    const user = await User.findById(req.user._id).select("-password -refreshToken");
+    const user = await User.findOne({
+      _id: req.user._id,
+      tenantId: req.user.tenantId,
+    }).select("-password -refreshToken");
     if (!user || !user.isActive || user.role !== "marketing") {
       return res.status(404).json({
         success: false,
@@ -530,12 +538,14 @@ export const getMyMarketingPerformance = async (req, res) => {
       createdBy: user._id,
     });
 
-    const rangeStart = Object.keys(dateFilter).length > 0
-      ? new Date(dateFilter.$gte || new Date(0))
-      : new Date(todayStart.getTime() - 6 * 24 * 60 * 60 * 1000);
-    const rangeEnd = Object.keys(dateFilter).length > 0
-      ? new Date(dateFilter.$lte || now)
-      : now;
+    const rangeStart =
+      Object.keys(dateFilter).length > 0
+        ? new Date(dateFilter.$gte || new Date(0))
+        : new Date(todayStart.getTime() - 6 * 24 * 60 * 60 * 1000);
+    const rangeEnd =
+      Object.keys(dateFilter).length > 0
+        ? new Date(dateFilter.$lte || now)
+        : now;
     const dayWiseFrom = getStartOfDay(rangeStart);
     const dayWiseTo = getStartOfDay(rangeEnd);
 
@@ -598,7 +608,10 @@ export const getMyMarketingPerformance = async (req, res) => {
       sessionAgg.map((entry) => [
         entry._id,
         {
-          totalOnlineSeconds: Math.max(0, Math.floor(entry.totalOnlineSeconds || 0)),
+          totalOnlineSeconds: Math.max(
+            0,
+            Math.floor(entry.totalOnlineSeconds || 0),
+          ),
           sessions: entry.sessions || 0,
         },
       ]),
@@ -619,7 +632,8 @@ export const getMyMarketingPerformance = async (req, res) => {
       };
       dayWiseStats.push({
         date: key,
-        status: key === formatDayKey(now) && activeSession ? "online" : "offline",
+        status:
+          key === formatDayKey(now) && activeSession ? "online" : "offline",
         sessions: sessionDay.sessions,
         totalOnlineSeconds: sessionDay.totalOnlineSeconds,
         totalOnlineTime: formatDuration(sessionDay.totalOnlineSeconds),
@@ -673,8 +687,8 @@ export const getMyMarketingPerformance = async (req, res) => {
  */
 export const getMarketingUserDetailedReport = async (req, res) => {
   try {
-    // Only admins can view this
-    if (req.user.role !== "admin") {
+    // Only admins and superadmins can view this
+    if (!["admin", "superadmin"].includes(req.user.role)) {
       return res.status(403).json({
         success: false,
         message: "Only admins can view user reports",
@@ -755,7 +769,9 @@ export const getMarketingUserDetailedReport = async (req, res) => {
       );
       dailyStats[date].contactedUsers = contactedMap.get(date) || 0;
       dailyStats[date].status =
-        date === formatDayKey(new Date()) && activeSession ? "online" : "offline";
+        date === formatDayKey(new Date()) && activeSession
+          ? "online"
+          : "offline";
     });
 
     contactedMap.forEach((contactedUsers, date) => {
@@ -767,7 +783,9 @@ export const getMarketingUserDetailedReport = async (req, res) => {
           totalTime: formatDuration(0),
           contactedUsers,
           status:
-            date === formatDayKey(new Date()) && activeSession ? "online" : "offline",
+            date === formatDayKey(new Date()) && activeSession
+              ? "online"
+              : "offline",
         };
       }
     });

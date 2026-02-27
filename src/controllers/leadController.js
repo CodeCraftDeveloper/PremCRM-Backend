@@ -4,6 +4,8 @@ import {
   successResponse,
 } from "../utils/apiResponse.js";
 import { Lead, Website, LeadActivity } from "../models/index.js";
+import AuditLog from "../models/AuditLog.js";
+import UsageMetric from "../models/UsageMetric.js";
 import LeadService from "../core/leads/LeadService.js";
 import DuplicateDetectionService from "../core/leads/DuplicateDetectionService.js";
 import AssignmentService from "../core/leads/AssignmentService.js";
@@ -33,7 +35,7 @@ const getLeads = asyncHandler(async (req, res, next) => {
     const filters = {};
     if (status) filters.status = status;
     if (websiteId) filters.websiteId = websiteId;
-    if (assignedTo) filters.assignedTo = assignedTo;
+    if (assignedTo !== undefined) filters.assignedTo = assignedTo;
     if (source) filters.source = source;
     if (unassigned) filters.unassigned = unassigned === "true";
     if (search) filters.search = search;
@@ -58,7 +60,10 @@ const getLeads = asyncHandler(async (req, res, next) => {
  */
 const getLeadDetail = asyncHandler(async (req, res, next) => {
   try {
-    const lead = await Lead.findById(req.params.id)
+    const lead = await Lead.findOne({
+      _id: req.params.id,
+      tenantId: req.user.tenantId,
+    })
       .populate("assignedTo", "name email")
       .populate("websiteId", "name domain")
       .populate("duplicateOf", "fullName email source");
@@ -67,13 +72,11 @@ const getLeadDetail = asyncHandler(async (req, res, next) => {
       return next(ApiError.notFound("Lead not found"));
     }
 
-    // Check tenant access
-    if (lead.tenantId.toString() !== req.user.tenantId.toString()) {
-      return next(ApiError.forbidden("Access denied"));
-    }
-
-    // Get activity history
-    const activities = await LeadActivity.find({ leadId: req.params.id })
+    // Get activity history — scoped by tenantId to prevent cross-tenant leak
+    const activities = await LeadActivity.find({
+      leadId: req.params.id,
+      tenantId: req.user.tenantId,
+    })
       .populate("performedBy", "name email")
       .sort({ createdAt: -1 })
       .limit(20);
@@ -91,14 +94,44 @@ const getLeadDetail = asyncHandler(async (req, res, next) => {
  */
 const createLeadManual = asyncHandler(async (req, res, next) => {
   try {
-    const { firstName, email, websiteId, ...otherData } = req.body;
+    let { firstName, email, websiteId, fullName, ...otherData } = req.body;
+
+    // CRM contract adapter: split fullName → firstName/lastName if needed
+    if (!firstName && fullName) {
+      const parts = fullName.trim().split(/\s+/);
+      firstName = parts[0] || "";
+      if (!otherData.lastName && parts.length > 1) {
+        otherData.lastName = parts.slice(1).join(" ");
+      }
+    }
+
+    // Map CRM ownerId → legacy assignedTo
+    if (otherData.ownerId && !otherData.assignedTo) {
+      otherData.assignedTo = otherData.ownerId;
+      delete otherData.ownerId;
+    }
 
     if (!firstName || !email) {
       return next(ApiError.badRequest("First name and email are required"));
     }
 
     if (!websiteId) {
-      return next(ApiError.badRequest("Website ID is required"));
+      const defaultWebsite = await Website.findOne({
+        tenantId: req.user.tenantId,
+        isActive: true,
+      })
+        .sort({ createdAt: 1 })
+        .select("_id");
+
+      if (!defaultWebsite) {
+        return next(
+          ApiError.badRequest(
+            "Website ID is required because no active website exists for this tenant",
+          ),
+        );
+      }
+
+      websiteId = defaultWebsite._id;
     }
 
     // Verify website exists and belongs to tenant
@@ -136,9 +169,31 @@ const createLeadManual = asyncHandler(async (req, res, next) => {
       performedBy: req.user._id,
     });
 
+    // Track usage metric
+    UsageMetric.increment(req.user.tenantId, "leadsCreated", 1);
+
+    // Audit log
+    AuditLog.record({
+      tenantId: req.user.tenantId,
+      userId: req.user._id,
+      action: "lead.create",
+      entityType: "lead",
+      entityId: result.leadId,
+      description: `Lead manually created by ${req.user.name}`,
+      requestId: req.requestId,
+      ipAddress: req.ip,
+      userAgent: req.get("User-Agent"),
+    });
+
+    // Return full lead document so the frontend can add it to the list
+    const createdLead = await Lead.findById(result.leadId)
+      .populate("assignedTo", "name email")
+      .populate("websiteId", "name domain")
+      .lean();
+
     successResponse(
       res,
-      { leadId: result.leadId },
+      { lead: createdLead || { _id: result.leadId } },
       "Lead created successfully",
       201,
     );
@@ -154,15 +209,23 @@ const createLeadManual = asyncHandler(async (req, res, next) => {
  */
 const updateLead = asyncHandler(async (req, res, next) => {
   try {
-    const lead = await Lead.findById(req.params.id);
+    // CRM contract adapter: split fullName → firstName/lastName if needed
+    if (!req.body.firstName && req.body.fullName) {
+      const parts = req.body.fullName.trim().split(/\s+/);
+      req.body.firstName = parts[0] || "";
+      if (!req.body.lastName && parts.length > 1) {
+        req.body.lastName = parts.slice(1).join(" ");
+      }
+      delete req.body.fullName;
+    }
+
+    const lead = await Lead.findOne({
+      _id: req.params.id,
+      tenantId: req.user.tenantId,
+    });
 
     if (!lead) {
       return next(ApiError.notFound("Lead not found"));
-    }
-
-    // Check tenant access
-    if (lead.tenantId.toString() !== req.user.tenantId.toString()) {
-      return next(ApiError.forbidden("Access denied"));
     }
 
     // Allowed fields to update
@@ -190,9 +253,11 @@ const updateLead = asyncHandler(async (req, res, next) => {
       }
     });
 
-    const updatedLead = await Lead.findByIdAndUpdate(req.params.id, updates, {
-      new: true,
-    });
+    const updatedLead = await Lead.findOneAndUpdate(
+      { _id: req.params.id, tenantId: req.user.tenantId },
+      updates,
+      { new: true },
+    );
 
     successResponse(res, updatedLead, "Lead updated successfully");
   } catch (error) {
@@ -220,6 +285,20 @@ const updateLeadStatus = asyncHandler(async (req, res, next) => {
       req.user._id,
     );
 
+    // Audit log for status change
+    AuditLog.record({
+      tenantId: req.user.tenantId,
+      userId: req.user._id,
+      action: "lead.status_change",
+      entityType: "lead",
+      entityId: req.params.id,
+      description: `Lead status changed to ${status}`,
+      metadata: { newStatus: status },
+      requestId: req.requestId,
+      ipAddress: req.ip,
+      userAgent: req.get("User-Agent"),
+    });
+
     successResponse(res, updatedLead, "Lead status updated");
   } catch (error) {
     next(error);
@@ -239,15 +318,13 @@ const assignLead = asyncHandler(async (req, res, next) => {
       return next(ApiError.badRequest("User ID is required"));
     }
 
-    const lead = await Lead.findById(req.params.id);
+    const lead = await Lead.findOne({
+      _id: req.params.id,
+      tenantId: req.user.tenantId,
+    });
 
     if (!lead) {
       return next(ApiError.notFound("Lead not found"));
-    }
-
-    // Check tenant access
-    if (lead.tenantId.toString() !== req.user.tenantId.toString()) {
-      return next(ApiError.forbidden("Access denied"));
     }
 
     const result = await AssignmentService.assignLeadToUser(
@@ -276,20 +353,19 @@ const markDuplicate = asyncHandler(async (req, res, next) => {
       return next(ApiError.badRequest("Original lead ID is required"));
     }
 
-    const lead = await Lead.findById(req.params.id);
+    const lead = await Lead.findOne({
+      _id: req.params.id,
+      tenantId: req.user.tenantId,
+    });
 
     if (!lead) {
       return next(ApiError.notFound("Lead not found"));
     }
 
-    // Check tenant access
-    if (lead.tenantId.toString() !== req.user.tenantId.toString()) {
-      return next(ApiError.forbidden("Access denied"));
-    }
-
     const updatedLead = await DuplicateDetectionService.markAsDuplicate(
       req.params.id,
       originalLeadId,
+      req.user.tenantId,
     );
 
     // Log activity
@@ -316,15 +392,13 @@ const mergeDuplicates = asyncHandler(async (req, res, next) => {
   try {
     const { id, duplicateId } = req.params;
 
-    const originalLead = await Lead.findById(id);
+    const originalLead = await Lead.findOne({
+      _id: id,
+      tenantId: req.user.tenantId,
+    });
 
     if (!originalLead) {
       return next(ApiError.notFound("Original lead not found"));
-    }
-
-    // Check tenant access
-    if (originalLead.tenantId.toString() !== req.user.tenantId.toString()) {
-      return next(ApiError.forbidden("Access denied"));
     }
 
     const mergedLead = await DuplicateDetectionService.mergeDuplicates(
@@ -408,23 +482,34 @@ const autoAssignLeads = asyncHandler(async (req, res, next) => {
  */
 const deleteLead = asyncHandler(async (req, res, next) => {
   try {
-    const lead = await Lead.findById(req.params.id);
+    const lead = await Lead.findOne({
+      _id: req.params.id,
+      tenantId: req.user.tenantId,
+    });
 
     if (!lead) {
       return next(ApiError.notFound("Lead not found"));
     }
 
-    // Check tenant access
-    if (lead.tenantId.toString() !== req.user.tenantId.toString()) {
-      return next(ApiError.forbidden("Access denied"));
-    }
+    // Soft delete by default (set deletedAt instead of removing)
+    lead.deletedAt = new Date();
+    lead.deletedBy = req.user._id;
+    await lead.save();
 
-    await Lead.findByIdAndDelete(req.params.id);
+    // Audit log
+    AuditLog.record({
+      tenantId: req.user.tenantId,
+      userId: req.user._id,
+      action: "lead.soft_delete",
+      entityType: "lead",
+      entityId: lead._id,
+      description: `Lead ${lead._id} soft-deleted by ${req.user.name}`,
+      requestId: req.requestId,
+      ipAddress: req.ip,
+      userAgent: req.get("User-Agent"),
+    });
 
-    // Clean up related activities
-    await LeadActivity.deleteMany({ leadId: req.params.id });
-
-    logger.info(`Lead ${req.params.id} deleted by ${req.user.name}`);
+    logger.info(`Lead ${req.params.id} soft-deleted by ${req.user.name}`);
 
     successResponse(res, null, "Lead deleted successfully");
   } catch (error) {
@@ -439,14 +524,13 @@ const deleteLead = asyncHandler(async (req, res, next) => {
  */
 const uploadLeadAttachments = asyncHandler(async (req, res, next) => {
   try {
-    const lead = await Lead.findById(req.params.id);
+    const lead = await Lead.findOne({
+      _id: req.params.id,
+      tenantId: req.user.tenantId,
+    });
 
     if (!lead) {
       return next(ApiError.notFound("Lead not found"));
-    }
-
-    if (lead.tenantId.toString() !== req.user.tenantId.toString()) {
-      return next(ApiError.forbidden("Access denied"));
     }
 
     if (!req.files || req.files.length === 0) {
@@ -496,7 +580,7 @@ const uploadLeadAttachments = asyncHandler(async (req, res, next) => {
         // Fallback to local storage
         const uploadDir = path.join(
           process.cwd(),
-          "public",
+          "private",
           "uploads",
           "lead-attachments",
           lead._id.toString(),
@@ -507,7 +591,7 @@ const uploadLeadAttachments = asyncHandler(async (req, res, next) => {
         const filePath = path.join(uploadDir, uniqueName);
         fs.writeFileSync(filePath, file.buffer);
 
-        const url = `/uploads/lead-attachments/${lead._id}/${uniqueName}`;
+        const url = `/api/v1/files/lead-attachments/${lead._id}/${uniqueName}`;
         fileRecord = {
           fileName: uniqueName,
           originalName: file.originalname,
@@ -559,14 +643,10 @@ const deleteLeadAttachment = asyncHandler(async (req, res, next) => {
   try {
     const { id, attachmentId } = req.params;
 
-    const lead = await Lead.findById(id);
+    const lead = await Lead.findOne({ _id: id, tenantId: req.user.tenantId });
 
     if (!lead) {
       return next(ApiError.notFound("Lead not found"));
-    }
-
-    if (lead.tenantId.toString() !== req.user.tenantId.toString()) {
-      return next(ApiError.forbidden("Access denied"));
     }
 
     const attachment = lead.attachments?.id(attachmentId);
@@ -595,7 +675,9 @@ const deleteLeadAttachment = asyncHandler(async (req, res, next) => {
       if (localPath.startsWith(publicRoot) && fs.existsSync(localPath)) {
         fs.unlinkSync(localPath);
       } else {
-        logger.warn(`Skipped unsafe or missing local attachment path: ${localPath}`);
+        logger.warn(
+          `Skipped unsafe or missing local attachment path: ${localPath}`,
+        );
       }
     }
 
@@ -618,6 +700,44 @@ const deleteLeadAttachment = asyncHandler(async (req, res, next) => {
   }
 });
 
+/**
+ * @desc    Restore soft-deleted lead
+ * @route   PUT /api/leads/:id/restore
+ * @access  Private/Admin
+ */
+const restoreLead = asyncHandler(async (req, res, next) => {
+  const tenantId = req.user.tenantId;
+  const lead = await Lead.findOne({
+    _id: req.params.id,
+    tenantId,
+    deletedAt: { $ne: null },
+  });
+
+  if (!lead) {
+    return next(new ApiError(404, "Deleted lead not found"));
+  }
+
+  lead.deletedAt = null;
+  lead.deletedBy = null;
+  await lead.save();
+
+  AuditLog.record({
+    tenantId,
+    userId: req.user._id,
+    action: "lead.restore",
+    entityType: "lead",
+    entityId: lead._id,
+    description: `Lead restored: ${lead.name}`,
+    requestId: req.requestId,
+    ipAddress: req.ip,
+    userAgent: req.get("User-Agent"),
+  });
+
+  logger.info(`Lead restored: ${lead.name} by ${req.user.email}`);
+
+  successResponse(res, null, "Lead restored successfully");
+});
+
 export {
   getLeads,
   getLeadDetail,
@@ -631,6 +751,7 @@ export {
   getUnassignedCount,
   autoAssignLeads,
   deleteLead,
+  restoreLead,
   uploadLeadAttachments,
   deleteLeadAttachment,
 };

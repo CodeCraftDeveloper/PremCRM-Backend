@@ -6,6 +6,7 @@ import {
   createClient,
   updateClient,
   deleteClient,
+  restoreClient,
   uploadVisitingCard,
   getPendingFollowUps,
   getClientStats,
@@ -86,6 +87,7 @@ router.get("/:id", [commonValidations.mongoId("id"), validate], getClient);
  */
 router.post(
   "/",
+  marketingOrAdmin,
   [
     body("name")
       .trim()
@@ -157,6 +159,7 @@ router.post(
  */
 router.put(
   "/:id",
+  marketingOrAdmin,
   [
     commonValidations.mongoId("id"),
     body("name")
@@ -192,8 +195,21 @@ router.put(
  */
 router.delete(
   "/:id",
+  adminOnly,
   [commonValidations.mongoId("id"), validate],
   deleteClient,
+);
+
+/**
+ * @route   PUT /api/clients/:id/restore
+ * @desc    Restore a soft-deleted client
+ * @access  Private/Admin
+ */
+router.put(
+  "/:id/restore",
+  adminOnly,
+  [commonValidations.mongoId("id"), validate],
+  restoreClient,
 );
 
 /**

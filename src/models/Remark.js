@@ -2,6 +2,11 @@ import mongoose from "mongoose";
 
 const remarkSchema = new mongoose.Schema(
   {
+    tenantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Tenant",
+      index: true,
+    },
     client: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Client",
@@ -86,6 +91,7 @@ const remarkSchema = new mongoose.Schema(
 );
 
 // Indexes for performance
+remarkSchema.index({ tenantId: 1, client: 1, createdAt: -1 });
 remarkSchema.index({ client: 1, createdAt: -1 });
 remarkSchema.index({ user: 1 });
 remarkSchema.index({ type: 1 });

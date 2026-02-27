@@ -5,7 +5,7 @@ import {
   getMyMarketingPerformance,
   getMarketingUserDetailedReport,
 } from "../controllers/sessionController.js";
-import { protect } from "../middlewares/auth.js";
+import { protect, authorize } from "../middlewares/auth.js";
 
 const router = express.Router();
 
@@ -17,7 +17,11 @@ router.use(protect);
  * @desc    Get all marketing users online/offline status (Admin only)
  * @access  Private (Admin)
  */
-router.get("/marketing/status", getMarketingUsersStatus);
+router.get(
+  "/marketing/status",
+  authorize("admin", "superadmin"),
+  getMarketingUsersStatus,
+);
 
 /**
  * @route   GET /api/sessions/marketing/performance
@@ -25,14 +29,22 @@ router.get("/marketing/status", getMarketingUsersStatus);
  * @access  Private (Admin)
  * @query   startDate, endDate, userId
  */
-router.get("/marketing/performance", getMarketingPerformance);
+router.get(
+  "/marketing/performance",
+  authorize("admin", "superadmin"),
+  getMarketingPerformance,
+);
 
 /**
  * @route   GET /api/sessions/marketing/my-performance
  * @desc    Get current marketing user's performance
  * @access  Private (Marketing)
  */
-router.get("/marketing/my-performance", getMyMarketingPerformance);
+router.get(
+  "/marketing/my-performance",
+  authorize("admin", "superadmin", "marketing"),
+  getMyMarketingPerformance,
+);
 
 /**
  * @route   GET /api/sessions/marketing/:userId/report
@@ -40,6 +52,10 @@ router.get("/marketing/my-performance", getMyMarketingPerformance);
  * @access  Private (Admin)
  * @query   days (default: 30)
  */
-router.get("/marketing/:userId/report", getMarketingUserDetailedReport);
+router.get(
+  "/marketing/:userId/report",
+  authorize("admin", "superadmin"),
+  getMarketingUserDetailedReport,
+);
 
 export default router;

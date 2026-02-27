@@ -41,6 +41,55 @@ class ApiError extends Error {
   }
 }
 
+// ── Semantic subclasses ──────────────────────────────────────
+// These make `instanceof` checks cleaner and allow the error handler
+// to set the correct status-code automatically even if the caller
+// only throws `new ValidationError("…")` without a code.
+
+/**
+ * 400 — Payload failed validation (express-validator, Mongoose, etc.)
+ */
+class ValidationError extends ApiError {
+  /**
+   * @param {string}  message
+   * @param {Array}   fieldErrors  - [{ field, message }]
+   */
+  constructor(message = "Validation failed", fieldErrors = []) {
+    super(400, message, fieldErrors);
+    this.name = "ValidationError";
+  }
+}
+
+/**
+ * 401 — Missing or invalid credentials / token
+ */
+class AuthenticationError extends ApiError {
+  constructor(message = "Authentication required") {
+    super(401, message);
+    this.name = "AuthenticationError";
+  }
+}
+
+/**
+ * 403 — Authenticated but lacks permission
+ */
+class AuthorizationError extends ApiError {
+  constructor(message = "Insufficient permissions") {
+    super(403, message);
+    this.name = "AuthorizationError";
+  }
+}
+
+/**
+ * 404 — Entity does not exist (or is outside tenant scope)
+ */
+class NotFoundError extends ApiError {
+  constructor(message = "Resource not found") {
+    super(404, message);
+    this.name = "NotFoundError";
+  }
+}
+
 /**
  * Wrap async route handlers to catch errors
  * @param {Function} fn - Async function to wrap
@@ -97,4 +146,13 @@ const paginatedResponse = (res, data, pagination, message = "Success") => {
   });
 };
 
-export { ApiError, asyncHandler, successResponse, paginatedResponse };
+export {
+  ApiError,
+  ValidationError,
+  AuthenticationError,
+  AuthorizationError,
+  NotFoundError,
+  asyncHandler,
+  successResponse,
+  paginatedResponse,
+};

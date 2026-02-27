@@ -36,7 +36,7 @@ const getRemarks = asyncHandler(async (req, res, next) => {
   }
 
   // Build query
-  const query = { client: clientId };
+  const query = { client: clientId, tenantId: req.user.tenantId };
   if (type) query.type = type;
 
   // Get remarks with pagination
@@ -91,6 +91,7 @@ const createRemark = asyncHandler(async (req, res, next) => {
   const remark = await Remark.create({
     client: clientId,
     user: req.user._id,
+    tenantId: req.user.tenantId,
     content,
     type,
     isInternal,
@@ -98,10 +99,13 @@ const createRemark = asyncHandler(async (req, res, next) => {
 
   // Update client's last contacted date if it's a contact-related remark
   if (["call", "email", "meeting", "follow_up"].includes(type)) {
-    await Client.findByIdAndUpdate(clientId, {
-      lastContactedDate: new Date(),
-      lastContactedBy: req.user._id,
-    });
+    await Client.findOneAndUpdate(
+      { _id: clientId, tenantId: req.user.tenantId },
+      {
+        lastContactedDate: new Date(),
+        lastContactedBy: req.user._id,
+      },
+    );
   }
 
   // Log activity
@@ -167,11 +171,12 @@ const updateRemark = asyncHandler(async (req, res, next) => {
     return next(ApiError.forbidden("System remarks cannot be edited"));
   }
 
-  const updatedRemark = await Remark.findByIdAndUpdate(
-    req.params.id,
-    { content, isPinned },
-    { new: true, runValidators: true },
-  ).populate("user", "name email avatar");
+  // Update on the already-verified document to prevent TOCTOU bypass
+  if (content !== undefined) remark.content = content;
+  if (isPinned !== undefined) remark.isPinned = isPinned;
+  await remark.save();
+  await remark.populate("user", "name email avatar");
+  const updatedRemark = remark;
 
   // Log activity
   await ActivityLog.log({
@@ -228,7 +233,8 @@ const deleteRemark = asyncHandler(async (req, res, next) => {
     return next(ApiError.forbidden("System remarks cannot be deleted"));
   }
 
-  await Remark.findByIdAndDelete(req.params.id);
+  // Delete the already-verified document to prevent TOCTOU bypass
+  await remark.deleteOne();
 
   // Log activity
   await ActivityLog.log({

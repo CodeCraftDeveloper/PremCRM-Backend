@@ -8,11 +8,13 @@ import {
 } from "../controllers/tenantController.js";
 import { protect, adminOnly } from "../middlewares/auth.js";
 import { validate, commonValidations } from "../utils/validators.js";
+import { bootstrapLimiter } from "../middlewares/rateLimiter.js";
 
 const router = express.Router();
 
 router.post(
   "/bootstrap",
+  bootstrapLimiter,
   [
     body("tenantName")
       .trim()
@@ -71,8 +73,14 @@ router.put(
       .optional()
       .isBoolean()
       .withMessage("isActive must be boolean"),
-    body("settings").optional().isObject().withMessage("settings must be object"),
-    body("company").optional().isObject().withMessage("company must be an object"),
+    body("settings")
+      .optional()
+      .isObject()
+      .withMessage("settings must be object"),
+    body("company")
+      .optional()
+      .isObject()
+      .withMessage("company must be an object"),
     body("company.name")
       .optional()
       .trim()

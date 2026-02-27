@@ -22,6 +22,32 @@ const connectDB = async () => {
 
     logger.info(`MongoDB Connected: ${conn.connection.host}`);
 
+    // Slow query logger — warn on queries taking > 500ms
+    const SLOW_QUERY_THRESHOLD_MS = Number(process.env.SLOW_QUERY_MS) || 500;
+    mongoose.set("debug", (collectionName, method, query, doc, options) => {
+      // mongoose debug callback receives timing only in v7+; we use a plugin instead
+    });
+
+    // Mongoose plugin: measure execution time of all queries
+    mongoose.plugin((schema) => {
+      schema.pre(/^find|count|distinct|aggregate/, function () {
+        this._startTime = Date.now();
+      });
+      schema.post(/^find|count|distinct|aggregate/, function () {
+        if (this._startTime) {
+          const duration = Date.now() - this._startTime;
+          if (duration > SLOW_QUERY_THRESHOLD_MS) {
+            logger.warn("Slow MongoDB query", {
+              collection: this.mongooseCollection?.name || "unknown",
+              operation: this.op || "unknown",
+              durationMs: duration,
+              filter: JSON.stringify(this.getFilter?.() || {}),
+            });
+          }
+        }
+      });
+    });
+
     // Handle connection events
     mongoose.connection.on("error", (err) => {
       logger.error(`MongoDB connection error: ${err}`);
@@ -33,18 +59,6 @@ const connectDB = async () => {
 
     mongoose.connection.on("reconnected", () => {
       logger.info("MongoDB reconnected");
-    });
-
-    // Graceful shutdown
-    process.on("SIGINT", async () => {
-      try {
-        await mongoose.connection.close();
-        logger.info("MongoDB connection closed through app termination");
-        process.exit(0);
-      } catch (err) {
-        logger.error("Error closing MongoDB connection:", err);
-        process.exit(1);
-      }
     });
 
     return conn;

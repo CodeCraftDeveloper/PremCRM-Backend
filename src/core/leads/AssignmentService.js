@@ -221,11 +221,12 @@ class AssignmentService {
    * @returns {Promise<Object>} Assignment result
    */
   static async assignLeadToUser(leadId, userId, tenantId, method = "manual") {
+    if (!tenantId) throw new Error("tenantId is required");
     try {
-      // Get lead and user
+      // P0-1: Enforce tenantId in all queries to prevent cross-tenant lead assignment
       const [lead, user] = await Promise.all([
-        Lead.findById(leadId),
-        User.findById(userId, "_id name email"),
+        Lead.findOne({ _id: leadId, tenantId }),
+        User.findOne({ _id: userId, tenantId }, "_id name email"),
       ]);
 
       if (!lead || !user) {
@@ -244,9 +245,9 @@ class AssignmentService {
         });
       }
 
-      // Update lead
-      const updatedLead = await Lead.findByIdAndUpdate(
-        leadId,
+      // Update lead (scoped by tenantId)
+      const updatedLead = await Lead.findOneAndUpdate(
+        { _id: leadId, tenantId },
         {
           assignedTo: userId,
           assignedAt: new Date(),
@@ -254,7 +255,9 @@ class AssignmentService {
           lastActivityAt: new Date(),
         },
         { new: true },
-      );
+      )
+        .populate("assignedTo", "name email")
+        .populate("websiteId", "name domain");
 
       // Log activity
       await LeadActivity.create({
@@ -267,6 +270,7 @@ class AssignmentService {
       });
 
       return {
+        lead: updatedLead,
         leadId,
         assignedTo: userId,
         assignedToName: user.name,
@@ -346,7 +350,7 @@ class AssignmentService {
     try {
       const count = await Lead.countDocuments({
         tenantId,
-        assignedTo: { $exists: false },
+        assignedTo: null,
       });
 
       return count;
@@ -366,7 +370,7 @@ class AssignmentService {
     try {
       const unassigned = await Lead.find({
         tenantId,
-        assignedTo: { $exists: false },
+        assignedTo: null,
       });
 
       let assigned = 0;

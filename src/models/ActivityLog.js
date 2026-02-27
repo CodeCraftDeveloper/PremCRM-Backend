@@ -119,7 +119,11 @@ activityLogSchema.statics.log = async function (data) {
         }
 
         // Admin dashboards should refresh for system/client/user/event changes.
-        io.to("admins").emit("dashboard:refresh", { reason: action });
+        if (data.tenantId) {
+          io.to(`admins:${String(data.tenantId)}`).emit("dashboard:refresh", {
+            reason: action,
+          });
+        }
       }
     } catch {
       // Socket emission failures should never break API flow.

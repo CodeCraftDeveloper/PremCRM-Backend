@@ -10,8 +10,7 @@ import {
   testWebsiteConnection,
   deleteWebsite,
 } from "../controllers/websiteController.js";
-import { protect } from "../middlewares/auth.js";
-import { authorize } from "../shared/middlewares/rbacMiddleware.js";
+import { protect, authorize } from "../middlewares/auth.js";
 import { validate } from "../utils/validators.js";
 
 const router = express.Router();
@@ -165,6 +164,7 @@ router.get(
  */
 router.post(
   "/:id/test",
+  authorize("admin", "superadmin"),
   [param("id").isMongoId().withMessage("Invalid website ID"), validate],
   testWebsiteConnection,
 );

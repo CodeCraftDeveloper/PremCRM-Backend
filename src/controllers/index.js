@@ -7,3 +7,5 @@ export * from "./remarkController.js";
 export * from "./dashboardController.js";
 export * from "./exportController.js";
 export * from "./sessionController.js";
+export * from "./ticketController.js";
+export * from "./ticketRemarkController.js";

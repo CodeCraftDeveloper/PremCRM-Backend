@@ -13,6 +13,7 @@ import redis from "../../config/redis.js";
 import logger from "../../utils/logger.js";
 
 const HASH_ALGORITHM = "sha256";
+const PLATFORM_TENANT_SLUG = "__platform__";
 
 /**
  * AuthService
@@ -26,7 +27,10 @@ class AuthService {
   static async ensureUserTenant(user) {
     if (user.tenantId) return user;
 
-    const activeTenants = await Tenant.find({ isActive: true }, { _id: 1 })
+    const activeTenants = await Tenant.find(
+      { isActive: true, slug: { $ne: PLATFORM_TENANT_SLUG } },
+      { _id: 1 },
+    )
       .limit(2)
       .lean();
 
@@ -48,11 +52,13 @@ class AuthService {
    * Login user securely
    * @param {String} email - User email
    * @param {String} password - User password
-  * @param {Object} metadata - Login metadata (IP, device, etc.)
-  * @returns {Object} User and tokens
-  */
+   * @param {Object} metadata - Login metadata (IP, device, etc.)
+   * @returns {Object} User and tokens
+   */
   static async login(email, password, metadata = {}) {
-    const normalizedEmail = String(email || "").trim().toLowerCase();
+    const normalizedEmail = String(email || "")
+      .trim()
+      .toLowerCase();
     try {
       const tenantSlug = String(metadata?.tenantSlug || "")
         .trim()
@@ -61,7 +67,10 @@ class AuthService {
 
       let tenant = null;
       if (tenantSlug) {
-        tenant = await Tenant.findOne({ slug: tenantSlug, isActive: true }).lean();
+        tenant = await Tenant.findOne({
+          slug: tenantSlug,
+          isActive: true,
+        }).lean();
         if (!tenant) {
           throw new Error("Tenant not found or inactive");
         }
@@ -133,7 +142,9 @@ class AuthService {
 
       const userTenant =
         tenant ||
-        (await Tenant.findById(user.tenantId).select("_id isActive slug name").lean());
+        (await Tenant.findById(user.tenantId)
+          .select("_id isActive slug name")
+          .lean());
       if (!userTenant || !userTenant.isActive) {
         throw new Error("Tenant is inactive");
       }
@@ -157,7 +168,13 @@ class AuthService {
       await user.save({ validateBeforeSave: false });
 
       // Clear brute force counter
-      await redis.del(`login:attempts:${user.email}`);
+      try {
+        await redis.del(`login:attempts:${user.email}`);
+      } catch (redisError) {
+        logger.warn(
+          `Failed to clear login attempts for ${user.email}: ${redisError.message}`,
+        );
+      }
 
       logger.info(`User logged in: ${user.email}`);
 
@@ -177,11 +194,19 @@ class AuthService {
     } catch (error) {
       // Track failed attempt for brute force protection
       if (normalizedEmail) {
-        await redis.incr(`login:attempts:${normalizedEmail}`);
-        await redis.expire(`login:attempts:${normalizedEmail}`, 15 * 60); // 15 min window
+        try {
+          await redis.incr(`login:attempts:${normalizedEmail}`);
+          await redis.expire(`login:attempts:${normalizedEmail}`, 15 * 60); // 15 min window
+        } catch (redisError) {
+          logger.warn(
+            `Failed to update login attempts for ${normalizedEmail}: ${redisError.message}`,
+          );
+        }
       }
 
-      logger.warn(`Login failed for ${normalizedEmail || email}: ${error.message}`);
+      logger.warn(
+        `Login failed for ${normalizedEmail || email}: ${error.message}`,
+      );
       throw error;
     }
   }
@@ -192,25 +217,38 @@ class AuthService {
    * @returns {Number} Number of failed attempts
    */
   static async checkBruteForce(email) {
-    const attempts = await redis.get(`login:attempts:${email}`);
-    return parseInt(attempts || 0, 10);
+    try {
+      const attempts = await redis.get(`login:attempts:${email}`);
+      return parseInt(attempts || 0, 10);
+    } catch (redisError) {
+      logger.warn(
+        `Failed to read login attempts for ${email}: ${redisError.message}`,
+      );
+      return 0;
+    }
   }
 
   /**
    * Logout user
    * @param {String} userId - User ID
-   * @param {String} tenantId - Tenant ID
+   * @param {String} tenantId - Tenant ID (REQUIRED)
    */
   static async logout(userId, tenantId) {
+    if (!tenantId) throw new Error("tenantId is required");
     try {
-      // End all active sessions
-      const sessions = await SessionService.getUserActiveSessions(userId);
+      const sessions = await SessionService.getUserActiveSessions(
+        userId,
+        tenantId,
+      );
       for (const session of sessions) {
         await SessionService.endSession(session._id, tenantId);
       }
 
-      // Clear refresh token
-      await User.findByIdAndUpdate(userId, { refreshToken: null });
+      // P0-1: Scope user update by tenantId
+      await User.findOneAndUpdate(
+        { _id: userId, tenantId },
+        { refreshToken: null },
+      );
 
       logger.info(`User logged out: ${userId}`);
     } catch (error) {
@@ -242,13 +280,19 @@ class AuthService {
         throw new Error("User account is deactivated");
       }
 
-      const tenant = await Tenant.findById(user.tenantId).select("isActive").lean();
+      const tenant = await Tenant.findById(user.tenantId)
+        .select("isActive")
+        .lean();
       if (!tenant || !tenant.isActive) {
         throw new Error("Tenant is inactive");
       }
 
       // Generate new tokens
-      const sessions = await SessionService.getUserActiveSessions(user._id);
+      // P0-1: Pass tenantId to getUserActiveSessions for cross-tenant isolation
+      const sessions = await SessionService.getUserActiveSessions(
+        user._id,
+        user.tenantId,
+      );
       const tokens = this.generateTokens(user, sessions[0]?._id);
 
       user.refreshToken = tokens.refreshToken;
@@ -342,17 +386,24 @@ class AuthService {
   /**
    * Change password for an authenticated user
    * @param {String} userId
+   * @param {String} tenantId - Tenant ID (REQUIRED)
    * @param {String} currentPassword
    * @param {String} newPassword
    */
-  static async changePassword(userId, currentPassword, newPassword) {
+  static async changePassword(userId, tenantId, currentPassword, newPassword) {
+    if (!tenantId) throw new Error("tenantId is required");
     try {
-      const user = await User.findById(userId).select("+password");
+      const user = await User.findOne({ _id: userId, tenantId }).select(
+        "+password",
+      );
       if (!user) {
         throw new Error("User not found");
       }
 
-      const isValidPassword = await bcrypt.compare(currentPassword, user.password);
+      const isValidPassword = await bcrypt.compare(
+        currentPassword,
+        user.password,
+      );
       if (!isValidPassword) {
         throw new Error("Current password is incorrect");
       }
@@ -448,7 +499,9 @@ class AuthService {
         email: invite.email,
       }).lean();
       if (existingUser) {
-        throw new Error("User already exists with this email in this workspace");
+        throw new Error(
+          "User already exists with this email in this workspace",
+        );
       }
 
       if (
@@ -473,7 +526,9 @@ class AuthService {
       invite.acceptedAt = new Date();
       invite.acceptedBy = user._id;
       await invite.save();
-      await Tenant.findByIdAndUpdate(invite.tenantId, { $inc: { activeUsers: 1 } });
+      await Tenant.findByIdAndUpdate(invite.tenantId, {
+        $inc: { activeUsers: 1 },
+      });
 
       // Create session & login
       const session = await SessionService.createSession(user._id, {

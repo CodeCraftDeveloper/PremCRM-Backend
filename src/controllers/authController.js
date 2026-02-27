@@ -1,6 +1,7 @@
 import User from "../models/User.js";
 import Tenant from "../models/Tenant.js";
 import ActivityLog from "../models/ActivityLog.js";
+import AuditLog from "../models/AuditLog.js";
 import {
   ApiError,
   asyncHandler,
@@ -10,7 +11,13 @@ import AuthService from "../core/auth/AuthService.js";
 import SessionService from "../core/auth/SessionService.js";
 import logger from "../utils/logger.js";
 
+const PLATFORM_TENANT_SLUG = "__platform__";
+
 const mapAuthErrorToApiError = (error) => {
+  if (error instanceof ApiError) {
+    return error;
+  }
+
   const message = String(error?.message || "Authentication failed");
   const normalizedMessage = message.toLowerCase();
 
@@ -84,6 +91,19 @@ const login = asyncHandler(async (req, res, next) => {
       userAgent: req.get("User-Agent"),
     });
 
+    // Audit log (async, non-blocking)
+    AuditLog.record({
+      tenantId: result.user.tenantId,
+      userId: result.user.id,
+      action: "user.login",
+      entityType: "user",
+      entityId: result.user.id,
+      description: `User logged in: ${result.user.email}`,
+      requestId: req.requestId,
+      ipAddress: req.ip,
+      userAgent: req.get("User-Agent"),
+    });
+
     successResponse(
       res,
       {
@@ -92,7 +112,7 @@ const login = asyncHandler(async (req, res, next) => {
       "Login successful",
     );
   } catch (error) {
-    next(mapAuthErrorToApiError(error));
+    return next(mapAuthErrorToApiError(error));
   }
 });
 
@@ -128,7 +148,7 @@ const refreshAccessToken = asyncHandler(async (req, res, next) => {
 
     successResponse(res, {}, "Token refreshed successfully");
   } catch (error) {
-    next(mapAuthErrorToApiError(error));
+    return next(mapAuthErrorToApiError(error));
   }
 });
 
@@ -142,6 +162,7 @@ const logout = asyncHandler(async (req, res, next) => {
     // CRITICAL: Use SessionService.endSession() which CALCULATES duration
     const activeSessions = await SessionService.getUserActiveSessions(
       req.user._id,
+      req.user.tenantId,
     );
 
     for (const session of activeSessions) {
@@ -149,7 +170,10 @@ const logout = asyncHandler(async (req, res, next) => {
     }
 
     // Clear refresh token
-    await User.findByIdAndUpdate(req.user._id, { refreshToken: null });
+    await User.findOneAndUpdate(
+      { _id: req.user._id, tenantId: req.user.tenantId },
+      { refreshToken: null },
+    );
 
     // Log activity
     await ActivityLog.create({
@@ -159,6 +183,19 @@ const logout = asyncHandler(async (req, res, next) => {
       resourceType: "user",
       resourceId: req.user._id,
       description: `User logged out: ${req.user.email}`,
+      ipAddress: req.ip,
+      userAgent: req.get("User-Agent"),
+    });
+
+    // Audit log (async, non-blocking)
+    AuditLog.record({
+      tenantId: req.user.tenantId,
+      userId: req.user._id,
+      action: "user.logout",
+      entityType: "user",
+      entityId: req.user._id,
+      description: `User logged out: ${req.user.email}`,
+      requestId: req.requestId,
       ipAddress: req.ip,
       userAgent: req.get("User-Agent"),
     });
@@ -179,7 +216,10 @@ const logout = asyncHandler(async (req, res, next) => {
  * @access  Private
  */
 const getMe = asyncHandler(async (req, res, next) => {
-  const user = await User.findById(req.user._id).populate("clientCount");
+  const user = await User.findOne({
+    _id: req.user._id,
+    tenantId: req.user.tenantId,
+  }).populate("clientCount");
 
   successResponse(res, { user });
 });
@@ -192,8 +232,8 @@ const getMe = asyncHandler(async (req, res, next) => {
 const updateProfile = asyncHandler(async (req, res, next) => {
   const { name, phone, avatar } = req.body;
 
-  const user = await User.findByIdAndUpdate(
-    req.user._id,
+  const user = await User.findOneAndUpdate(
+    { _id: req.user._id, tenantId: req.user.tenantId },
     { name, phone, avatar },
     { new: true, runValidators: true },
   );
@@ -212,6 +252,7 @@ const changePassword = asyncHandler(async (req, res, next) => {
   try {
     await AuthService.changePassword(
       req.user._id,
+      req.user.tenantId,
       currentPassword,
       newPassword,
     );
@@ -224,6 +265,19 @@ const changePassword = asyncHandler(async (req, res, next) => {
       resourceType: "user",
       resourceId: req.user._id,
       description: `Password changed for: ${req.user.email}`,
+      ipAddress: req.ip,
+      userAgent: req.get("User-Agent"),
+    });
+
+    // Audit log (async, non-blocking)
+    AuditLog.record({
+      tenantId: req.user.tenantId,
+      userId: req.user._id,
+      action: "user.password_change",
+      entityType: "user",
+      entityId: req.user._id,
+      description: `Password changed for: ${req.user.email}`,
+      requestId: req.requestId,
       ipAddress: req.ip,
       userAgent: req.get("User-Agent"),
     });
@@ -428,7 +482,10 @@ const registerMarketingManager = asyncHandler(async (req, res, next) => {
     }
   } else {
     // Fallback: auto-detect when only one tenant exists (backward compat)
-    const activeTenants = await Tenant.find({ isActive: true }, "_id name slug")
+    const activeTenants = await Tenant.find(
+      { isActive: true, slug: { $ne: PLATFORM_TENANT_SLUG } },
+      "_id name slug",
+    )
       .limit(2)
       .lean();
 

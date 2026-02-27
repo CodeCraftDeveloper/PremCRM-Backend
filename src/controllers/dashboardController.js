@@ -41,7 +41,11 @@ const getAdminDashboard = asyncHandler(async (req, res, next) => {
   if (useCache) {
     const cached = await getCache(adminDashboardCacheKey);
     if (cached) {
-      return successResponse(res, cached, "Dashboard data retrieved from cache");
+      return successResponse(
+        res,
+        cached,
+        "Dashboard data retrieved from cache",
+      );
     }
   }
 
@@ -238,12 +242,19 @@ const getMarketingDashboard = asyncHandler(async (req, res, next) => {
   if (useCache) {
     const cached = await getCache(cacheKey);
     if (cached) {
-      return successResponse(res, cached, "Dashboard data retrieved from cache");
+      return successResponse(
+        res,
+        cached,
+        "Dashboard data retrieved from cache",
+      );
     }
   }
 
   // Get user's client stats
-  const clientStats = await Client.getStats({ tenantId, marketingPerson: userId });
+  const clientStats = await Client.getStats({
+    tenantId,
+    marketingPerson: userId,
+  });
 
   // Get my recent clients
   const myRecentClients = await Client.find({
@@ -279,6 +290,7 @@ const getMarketingDashboard = asyncHandler(async (req, res, next) => {
     nextFollowUpDate: { $lt: new Date() },
   })
     .sort({ nextFollowUpDate: 1 })
+    .limit(100)
     .populate("event", "name");
 
   // Get clients by event

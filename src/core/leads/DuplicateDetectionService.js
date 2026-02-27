@@ -63,13 +63,20 @@ class DuplicateDetectionService {
    * Mark a lead as duplicate of another
    * @param {ObjectId} duplicateLeadId - Lead to mark as duplicate
    * @param {ObjectId} originalLeadId - Original lead (keep this one)
+   * @param {ObjectId} tenantId - Tenant ID (REQUIRED)
    * @param {Object} metadata - Additional metadata
    * @returns {Promise<Object>} Updated duplicate lead
    */
-  static async markAsDuplicate(duplicateLeadId, originalLeadId, metadata = {}) {
+  static async markAsDuplicate(
+    duplicateLeadId,
+    originalLeadId,
+    tenantId,
+    metadata = {},
+  ) {
+    if (!tenantId) throw new Error("tenantId is required");
     try {
-      const duplicateLead = await Lead.findByIdAndUpdate(
-        duplicateLeadId,
+      const duplicateLead = await Lead.findOneAndUpdate(
+        { _id: duplicateLeadId, tenantId },
         {
           isDuplicate: true,
           duplicateOf: originalLeadId,
@@ -99,9 +106,13 @@ class DuplicateDetectionService {
     tenantId,
     userId,
   ) {
+    if (!tenantId) throw new Error("tenantId is required");
     try {
-      const originalLead = await Lead.findById(originalLeadId);
-      const duplicateLead = await Lead.findById(duplicateLeadId);
+      // Enforce tenantId in all queries to prevent cross-tenant merge
+      const [originalLead, duplicateLead] = await Promise.all([
+        Lead.findOne({ _id: originalLeadId, tenantId }),
+        Lead.findOne({ _id: duplicateLeadId, tenantId }),
+      ]);
 
       if (!originalLead || !duplicateLead) {
         throw new Error("One or both leads not found");
@@ -132,18 +143,21 @@ class DuplicateDetectionService {
         mergeDuplicates: [...originalLead.mergeDuplicates, duplicateLeadId],
       };
 
-      // Update original lead with merged data
-      const updatedLead = await Lead.findByIdAndUpdate(
-        originalLeadId,
+      // Update original lead with merged data (scoped by tenantId)
+      const updatedLead = await Lead.findOneAndUpdate(
+        { _id: originalLeadId, tenantId },
         mergedData,
         { new: true },
       );
 
-      // Mark duplicate as merged
-      await Lead.findByIdAndUpdate(duplicateLeadId, {
-        isDuplicate: true,
-        duplicateOf: originalLeadId,
-      });
+      // Mark duplicate as merged (scoped by tenantId)
+      await Lead.findOneAndUpdate(
+        { _id: duplicateLeadId, tenantId },
+        {
+          isDuplicate: true,
+          duplicateOf: originalLeadId,
+        },
+      );
 
       // Log activity
       await LeadActivity.create({

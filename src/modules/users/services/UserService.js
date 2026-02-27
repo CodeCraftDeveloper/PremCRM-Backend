@@ -147,11 +147,16 @@ class UserService {
 
   /**
    * Create user
-   * @param {Object} data -  User data
+   * @param {Object} data - User data (must include tenantId)
    * @returns {Object} Created user
    */
   static async createUser(data) {
     try {
+      // P0-1: Validate tenantId is present to prevent orphaned users
+      if (!data.tenantId) {
+        throw new Error("tenantId is required when creating a user");
+      }
+
       const user = await User.create(data);
       logger.info(`User created: ${user._id}`);
       return user;
@@ -168,10 +173,12 @@ class UserService {
    * Update user profile
    * Whitelist-based updates (security)
    * @param {String} userId - User ID
+   * @param {String} tenantId - Tenant ID (REQUIRED)
    * @param {Object} data - Update data
    * @returns {Object} Updated user
    */
-  static async updateUserProfile(userId, data) {
+  static async updateUserProfile(userId, tenantId, data) {
+    if (!tenantId) throw new Error("tenantId is required");
     try {
       // Whitelist allowed fields
       const allowedFields = ["name", "phone", "avatar", "email"];
@@ -183,12 +190,15 @@ class UserService {
         }
       });
 
-      const user = await User.findByIdAndUpdate(userId, updateData, {
-        new: true,
-        runValidators: true,
-      });
+      const user = await User.findOneAndUpdate(
+        { _id: userId, tenantId },
+        updateData,
+        { new: true, runValidators: true },
+      );
 
-      logger.info(`User profile updated: ${userId}`);
+      if (user) {
+        logger.info(`User profile updated: ${userId}`);
+      }
       return user;
     } catch (error) {
       logger.error(`Error updating user profile: ${error.message}`);
@@ -199,12 +209,16 @@ class UserService {
   /**
    * Change password
    * @param {String} userId - User ID
+   * @param {String} tenantId - Tenant ID (REQUIRED)
    * @param {String} currentPassword - Current password
    * @param {String} newPassword - New password
    */
-  static async changePassword(userId, currentPassword, newPassword) {
+  static async changePassword(userId, tenantId, currentPassword, newPassword) {
+    if (!tenantId) throw new Error("tenantId is required");
     try {
-      const user = await User.findById(userId).select("+password");
+      const user = await User.findOne({ _id: userId, tenantId }).select(
+        "+password",
+      );
 
       if (!user) {
         throw new Error("User not found");
@@ -231,17 +245,21 @@ class UserService {
   /**
    * Set user active/inactive status
    * @param {String} userId - User ID
+   * @param {String} tenantId - Tenant ID (REQUIRED)
    * @param {Boolean} isActive - Status
    */
-  static async setUserStatus(userId, isActive) {
+  static async setUserStatus(userId, tenantId, isActive) {
+    if (!tenantId) throw new Error("tenantId is required");
     try {
-      const user = await User.findByIdAndUpdate(
-        userId,
+      const user = await User.findOneAndUpdate(
+        { _id: userId, tenantId },
         { isActive },
         { new: true },
       );
 
-      logger.info(`User status updated: ${userId}, isActive: ${isActive}`);
+      if (user) {
+        logger.info(`User status updated: ${userId}, isActive: ${isActive}`);
+      }
       return user;
     } catch (error) {
       logger.error(`Error setting user status: ${error.message}`);

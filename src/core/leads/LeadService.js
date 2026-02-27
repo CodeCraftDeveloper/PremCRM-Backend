@@ -5,6 +5,7 @@ import LeadActivity from "../../models/LeadActivity.js";
 import DuplicateDetectionService from "./DuplicateDetectionService.js";
 import AssignmentService from "./AssignmentService.js";
 import logger from "../../utils/logger.js";
+import { buildSafeSearch } from "../../utils/safeQueryBuilder.js";
 
 /**
  * Comprehensive Lead Service
@@ -22,8 +23,8 @@ class LeadService {
   static async createLead(leadData, websiteId, tenantId, metadata = {}) {
     try {
       // Get website for duplicate settings
-      const website = await Website.findById(
-        websiteId,
+      const website = await Website.findOne(
+        { _id: websiteId, tenantId },
         "duplicateSettings rateLimit",
       );
 
@@ -122,7 +123,7 @@ class LeadService {
       });
 
       // Update website stats
-      await Website.findByIdAndUpdate(websiteId, {
+      await Website.findOneAndUpdate({ _id: websiteId, tenantId }, {
         $inc: {
           "stats.totalLeads": 1,
           "stats.leadsThisMonth": 1,
@@ -203,17 +204,24 @@ class LeadService {
       // Apply filters
       if (filters.status) query.status = filters.status;
       if (filters.websiteId) query.websiteId = filters.websiteId;
-      if (filters.assignedTo) query.assignedTo = filters.assignedTo;
+      if (filters.assignedTo && filters.assignedTo !== "null") {
+        query.assignedTo = filters.assignedTo;
+      }
       if (filters.source) query.source = filters.source;
       if (filters.isDuplicate !== undefined)
         query.isDuplicate = filters.isDuplicate;
-      if (filters.unassigned) query.assignedTo = { $exists: false };
+      if (filters.unassigned || filters.assignedTo === "null") {
+        query.assignedTo = null;
+      }
       if (filters.search) {
-        query.$or = [
-          { email: { $regex: filters.search, $options: "i" } },
-          { fullName: { $regex: filters.search, $options: "i" } },
-          { phone: { $regex: filters.search, $options: "i" } },
-        ];
+        const safeSearch = buildSafeSearch(filters.search);
+        if (safeSearch) {
+          query.$or = [
+            { email: safeSearch },
+            { fullName: safeSearch },
+            { phone: safeSearch },
+          ];
+        }
       }
 
       // Date range filters
@@ -262,8 +270,9 @@ class LeadService {
    * @returns {Promise<Object>} Updated lead
    */
   static async updateLeadStatus(leadId, newStatus, tenantId, userId) {
+    if (!tenantId) throw new Error("tenantId is required");
     try {
-      const lead = await Lead.findById(leadId);
+      const lead = await Lead.findOne({ _id: leadId, tenantId });
 
       if (!lead) {
         throw new Error("Lead not found");
@@ -277,9 +286,11 @@ class LeadService {
         updateData.convertedAt = new Date();
       }
 
-      const updatedLead = await Lead.findByIdAndUpdate(leadId, updateData, {
-        new: true,
-      });
+      const updatedLead = await Lead.findOneAndUpdate(
+        { _id: leadId, tenantId },
+        updateData,
+        { new: true },
+      );
 
       // Log activity
       await LeadActivity.create({
@@ -364,7 +375,12 @@ class LeadService {
             ],
             unassignedCount: [
               {
-                $match: { assignedTo: { $exists: false } },
+                $match: {
+                  $or: [
+                    { assignedTo: null },
+                    { assignedTo: null },
+                  ],
+                },
               },
               { $count: "count" },
             ],

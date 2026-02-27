@@ -6,46 +6,46 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Define log format
-const logFormat = winston.format.combine(
-  winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
+const isProduction = process.env.NODE_ENV === "production";
+
+// ── JSON format (used in production + file transports) ───────
+const jsonFormat = winston.format.combine(
+  winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss.SSS" }),
   winston.format.errors({ stack: true }),
-  winston.format.printf(({ timestamp, level, message, stack, ...metadata }) => {
-    let log = `${timestamp} [${level.toUpperCase()}]: ${message}`;
-    if (Object.keys(metadata).length > 0) {
-      log += ` ${JSON.stringify(metadata)}`;
-    }
-    if (stack) {
-      log += `\n${stack}`;
-    }
-    return log;
-  }),
+  winston.format.json(),
 );
 
-// Define console format (colorized for development)
-const consoleFormat = winston.format.combine(
+// ── Pretty format (used in development console) ─────────────
+const prettyFormat = winston.format.combine(
   winston.format.colorize(),
-  winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
-  winston.format.printf(({ timestamp, level, message }) => {
-    return `${timestamp} ${level}: ${message}`;
+  winston.format.timestamp({ format: "HH:mm:ss" }),
+  winston.format.printf(({ timestamp, level, message, stack, ...meta }) => {
+    let line = `${timestamp} ${level}: ${message}`;
+    const keys = Object.keys(meta).filter(
+      (k) => k !== "service" && meta[k] !== undefined,
+    );
+    if (keys.length > 0) {
+      line += ` ${JSON.stringify(Object.fromEntries(keys.map((k) => [k, meta[k]])))}`;
+    }
+    if (stack) line += `\n${stack}`;
+    return line;
   }),
 );
 
-// Create logger instance
+// ── Create logger ────────────────────────────────────────────
 const logger = winston.createLogger({
-  level: process.env.NODE_ENV === "production" ? "info" : "debug",
-  format: logFormat,
+  level: isProduction ? "info" : "debug",
   defaultMeta: { service: "crm-api" },
+  format: jsonFormat, // default for all transports
   transports: [
-    // Write logs to console
     new winston.transports.Console({
-      format: consoleFormat,
+      format: isProduction ? jsonFormat : prettyFormat,
     }),
   ],
 });
 
-// Add file transports in production
-if (process.env.NODE_ENV === "production") {
+// ── File transports (production only) ────────────────────────
+if (isProduction) {
   const logsDir = path.join(__dirname, "../../logs");
   fs.mkdirSync(logsDir, { recursive: true });
 
@@ -53,7 +53,7 @@ if (process.env.NODE_ENV === "production") {
     new winston.transports.File({
       filename: path.join(logsDir, "error.log"),
       level: "error",
-      maxsize: 5242880, // 5MB
+      maxsize: 5_242_880, // 5 MB
       maxFiles: 5,
     }),
   );
@@ -61,7 +61,7 @@ if (process.env.NODE_ENV === "production") {
   logger.add(
     new winston.transports.File({
       filename: path.join(logsDir, "combined.log"),
-      maxsize: 5242880, // 5MB
+      maxsize: 5_242_880,
       maxFiles: 5,
     }),
   );

@@ -22,9 +22,9 @@ router.get("/admin", adminOnly, getAdminDashboard);
 /**
  * @route   GET /api/dashboard/marketing
  * @desc    Get marketing user dashboard data
- * @access  Private
+ * @access  Private/Admin+Marketing
  */
-router.get("/marketing", getMarketingDashboard);
+router.get("/marketing", marketingOrAdmin, getMarketingDashboard);
 
 /**
  * @route   GET /api/dashboard/analytics

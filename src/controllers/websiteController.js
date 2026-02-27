@@ -128,6 +128,9 @@ const createWebsite = asyncHandler(async (req, res, next) => {
       webhookUrl,
       duplicateSettings,
       rateLimit,
+      products,
+      formFields,
+      formConfig,
     } = req.body;
 
     if (!name || !domain) {
@@ -170,6 +173,16 @@ const createWebsite = asyncHandler(async (req, res, next) => {
         requestsPerMinute: 60,
         requestsPerDay: 5000,
       },
+      products: Array.isArray(products)
+        ? products.filter(Boolean).slice(0, 50)
+        : [],
+      formFields: Array.isArray(formFields)
+        ? formFields
+            .filter((f) => f && f.fieldName && f.label && f.type)
+            .slice(0, 30)
+        : [],
+      formConfig:
+        formConfig && typeof formConfig === "object" ? formConfig : {},
       createdBy: req.user._id,
     });
 
@@ -210,7 +223,22 @@ const updateWebsite = asyncHandler(async (req, res, next) => {
       "duplicateSettings",
       "rateLimit",
       "ipWhitelist",
+      "products",
+      "formFields",
+      "formConfig",
     ];
+
+    // Sanitize products array if present
+    if (Array.isArray(req.body.products)) {
+      req.body.products = req.body.products.filter(Boolean).slice(0, 50);
+    }
+
+    // Sanitize formFields array if present
+    if (Array.isArray(req.body.formFields)) {
+      req.body.formFields = req.body.formFields
+        .filter((f) => f && f.fieldName && f.label && f.type)
+        .slice(0, 30);
+    }
 
     const updates = {};
     allowedFields.forEach((field) => {
@@ -219,8 +247,8 @@ const updateWebsite = asyncHandler(async (req, res, next) => {
       }
     });
 
-    const updatedWebsite = await Website.findByIdAndUpdate(
-      req.params.id,
+    const updatedWebsite = await Website.findOneAndUpdate(
+      { _id: req.params.id, tenantId: req.user.tenantId },
       updates,
       { new: true },
     );
@@ -268,9 +296,16 @@ const regenerateApiKey = asyncHandler(async (req, res, next) => {
       `API key regenerated for website ${website._id} by ${req.user.name}`,
     );
 
+    // Re-fetch without the +apiKey select to return a clean website object
+    const updatedWebsite = await Website.findById(website._id).lean();
+
     successResponse(
       res,
-      { apiKey: newApiKey, apiKeyPrefix: newApiKeyPrefix },
+      {
+        website: updatedWebsite,
+        apiKey: newApiKey,
+        apiKeyPrefix: newApiKeyPrefix,
+      },
       "API key regenerated successfully",
     );
   } catch (error) {
@@ -423,7 +458,10 @@ const deleteWebsite = asyncHandler(async (req, res, next) => {
       return next(ApiError.notFound("Website not found"));
     }
 
-    await Website.findByIdAndDelete(req.params.id);
+    await Website.findOneAndDelete({
+      _id: req.params.id,
+      tenantId: req.user.tenantId,
+    });
 
     // Clear cached API key data
     if (website.apiKey) {

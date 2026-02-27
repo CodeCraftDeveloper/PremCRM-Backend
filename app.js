@@ -22,17 +22,35 @@ import {
   websiteRoutes,
   tenantRoutes,
   superAdminRoutes,
+  ticketRoutes,
+  fileRoutes,
 } from "./src/routes/index.js";
+import crmRoutes from "./src/routes/crm/index.js";
 
 // Import middlewares
 import { errorHandler, notFound } from "./src/middlewares/error.js";
 import { apiLimiter } from "./src/middlewares/rateLimiter.js";
+import requestIdMiddleware from "./src/middlewares/requestId.js";
+import { requestDuration } from "./src/middlewares/requestDuration.js";
+import {
+  trackApiUsage,
+  trackActiveUser,
+} from "./src/middlewares/usageTracker.js";
+
+// Import CSRF protection
+import { csrfProtection } from "./src/middlewares/csrf.js";
 
 // Import utilities
 import logger from "./src/utils/logger.js";
 
 // Initialize express app
 const app = express();
+
+// Attach a unique requestId to every request (must be first)
+app.use(requestIdMiddleware);
+
+// Track request duration & log slow requests
+app.use(requestDuration);
 const normalizeOrigin = (value = "") =>
   value
     .trim()
@@ -56,17 +74,45 @@ const allowedOrigins = [...new Set([...envOrigins, ...devOrigins])];
 // Security Middlewares
 // =====================
 
+// Disable x-powered-by (before helmet, so it's definitely gone)
+app.disable("x-powered-by");
+
 // Set security HTTP headers
 app.use(
   helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:", "https:"],
+        connectSrc: ["'self'"],
+        fontSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        frameSrc: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+      },
+    },
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+    frameguard: { action: "deny" },
+    hsts: {
+      maxAge: 31_536_000, // 1 year
+      includeSubDomains: true,
+      preload: true,
+    },
+    noSniff: true,
+    xssFilter: true,
   }),
 );
 
 // Enable CORS
 app.use(
   cors((req, callback) => {
-    const isPublicApiRoute = req.path?.startsWith("/api/public/");
+    const isPublicApiRoute =
+      req.path?.startsWith("/api/public/") ||
+      req.path?.startsWith("/api/v1/public/");
 
     const baseOptions = {
       methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
@@ -138,6 +184,9 @@ app.use(cookieParser());
 // Compression
 app.use(compression());
 
+// CSRF double-submit cookie protection (after cookieParser, before routes)
+app.use(csrfProtection);
+
 // Logging
 if (process.env.NODE_ENV === "development") {
   app.use(morgan("dev"));
@@ -151,26 +200,110 @@ if (process.env.NODE_ENV === "development") {
   );
 }
 
-// Static files
-app.use(express.static("public"));
+// SECURITY: Static file serving removed — files served through authenticated /api/v1/files route
+// app.use(express.static("public")); // REMOVED: was exposing uploads without auth
 
 // =====================
 // Health Check
 // =====================
+import mongoose from "mongoose";
+import { isRedisConnected } from "./src/config/redis.js";
 
 app.get("/api/health", (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: "Server is healthy",
+  const dbReady = mongoose.connection.readyState === 1;
+  const redisReady = isRedisConnected();
+  const healthy = dbReady; // Redis is optional
+
+  res.status(healthy ? 200 : 503).json({
+    success: healthy,
+    status: healthy ? "healthy" : "degraded",
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
+    memoryUsage: process.memoryUsage().rss,
+    services: {
+      database: dbReady ? "connected" : "disconnected",
+      redis: redisReady ? "connected" : "disconnected",
+    },
   });
 });
 
+app.get("/api/health/db", async (req, res) => {
+  try {
+    const admin = mongoose.connection.db.admin();
+    const result = await admin.ping();
+    const ok = result?.ok === 1;
+    res.status(ok ? 200 : 503).json({
+      success: ok,
+      service: "mongodb",
+      status: ok ? "connected" : "unreachable",
+      readyState: mongoose.connection.readyState,
+    });
+  } catch (err) {
+    res.status(503).json({
+      success: false,
+      service: "mongodb",
+      status: "unreachable",
+      error: err.message,
+    });
+  }
+});
+
+app.get("/api/health/redis", async (req, res) => {
+  const redisReady = isRedisConnected();
+  if (!redisReady) {
+    return res.status(503).json({
+      success: false,
+      service: "redis",
+      status: "disconnected",
+    });
+  }
+
+  try {
+    const { getRedisClient } = await import("./src/config/redis.js");
+    const client = getRedisClient();
+    await client.ping();
+    res.status(200).json({
+      success: true,
+      service: "redis",
+      status: "connected",
+    });
+  } catch (err) {
+    res.status(503).json({
+      success: false,
+      service: "redis",
+      status: "error",
+      error: err.message,
+    });
+  }
+});
+
 // =====================
-// API Routes
+// API Routes — v1 (canonical) + backward-compat alias
 // =====================
 
+// Track API usage per tenant (non-blocking, after auth is resolved in routes)
+app.use("/api/", trackApiUsage);
+app.use("/api/", trackActiveUser);
+
+// v1 canonical prefix
+app.use("/api/v1/auth", authRoutes);
+app.use("/api/v1/users", userRoutes);
+app.use("/api/v1/events", eventRoutes);
+app.use("/api/v1/clients", clientRoutes);
+app.use("/api/v1/remarks", remarkRoutes);
+app.use("/api/v1/dashboard", dashboardRoutes);
+app.use("/api/v1/export", exportRoutes);
+app.use("/api/v1/sessions", sessionRoutes);
+app.use("/api/v1/public", publicLeadRoutes);
+app.use("/api/v1/leads", leadRoutes);
+app.use("/api/v1/websites", websiteRoutes);
+app.use("/api/v1/tenants", tenantRoutes);
+app.use("/api/v1/superadmin", superAdminRoutes);
+app.use("/api/v1/tickets", ticketRoutes);
+app.use("/api/v1/files", fileRoutes);
+app.use("/api/v1/crm", crmRoutes);
+
+// Backward-compat: /api/* → same handlers (no redirect, no duplication)
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/events", eventRoutes);
@@ -184,6 +317,9 @@ app.use("/api/leads", leadRoutes);
 app.use("/api/websites", websiteRoutes);
 app.use("/api/tenants", tenantRoutes);
 app.use("/api/superadmin", superAdminRoutes);
+app.use("/api/tickets", ticketRoutes);
+app.use("/api/files", fileRoutes);
+app.use("/api/crm", crmRoutes);
 
 // =====================
 // API Documentation
@@ -226,7 +362,8 @@ app.get("/api", (req, res) => {
         "POST /api/clients": "Create client",
         "GET /api/clients/:id": "Get client by ID",
         "PUT /api/clients/:id": "Update client",
-        "DELETE /api/clients/:id": "Delete client",
+        "DELETE /api/clients/:id": "Delete client (soft)",
+        "PUT /api/clients/:id/restore": "Restore deleted client (Admin)",
         "POST /api/clients/:id/visiting-card": "Upload visiting card",
         "GET /api/clients/:clientId/remarks": "Get client remarks",
         "POST /api/clients/:clientId/remarks": "Add client remark",
@@ -268,7 +405,8 @@ app.get("/api", (req, res) => {
         "PUT /api/leads/:id/mark-duplicate": "Mark lead as duplicate (Admin)",
         "POST /api/leads/:id/merge/:duplicateId":
           "Merge duplicate leads (Admin)",
-        "DELETE /api/leads/:id": "Delete lead (Admin)",
+        "DELETE /api/leads/:id": "Delete lead (Admin, soft)",
+        "PUT /api/leads/:id/restore": "Restore deleted lead (Admin)",
         "GET /api/leads/unassigned/count": "Count unassigned leads",
         "POST /api/leads/auto-assign":
           "Auto-assign all unassigned leads (Admin)",
@@ -289,6 +427,84 @@ app.get("/api", (req, res) => {
         "GET /api/tenants": "List tenants (admin/superadmin)",
         "GET /api/tenants/:id": "Get tenant details",
         "PUT /api/tenants/:id": "Update tenant settings",
+      },
+      tickets: {
+        "GET /api/tickets": "Get all tickets with filters",
+        "POST /api/tickets": "Create ticket (Admin/Marketing)",
+        "GET /api/tickets/stats": "Get ticket statistics",
+        "GET /api/tickets/follow-ups": "Get upcoming follow-ups",
+        "GET /api/tickets/entity/:entityType/:entityId":
+          "Get tickets by entity",
+        "GET /api/tickets/:id": "Get ticket details",
+        "PUT /api/tickets/:id": "Update ticket",
+        "PUT /api/tickets/:id/status": "Update ticket status",
+        "PUT /api/tickets/:id/assign": "Assign ticket (Admin)",
+        "DELETE /api/tickets/:id": "Delete ticket (Admin, soft)",
+        "PUT /api/tickets/:id/restore": "Restore deleted ticket (Admin)",
+        "PUT /api/tickets/bulk/status": "Bulk update status (Admin)",
+        "PUT /api/tickets/bulk/assign": "Bulk assign tickets (Admin)",
+        "GET /api/tickets/:ticketId/remarks": "Get ticket remarks",
+        "POST /api/tickets/:ticketId/remarks": "Add ticket remark",
+        "PUT /api/tickets/remarks/:id": "Update remark",
+        "DELETE /api/tickets/remarks/:id": "Delete remark",
+      },
+      crm: {
+        contacts: {
+          "GET /api/crm/contacts": "List contacts",
+          "GET /api/crm/contacts/:id": "Get contact",
+          "POST /api/crm/contacts": "Create contact",
+          "PUT /api/crm/contacts/:id": "Update contact",
+          "DELETE /api/crm/contacts/:id": "Delete contact (soft)",
+          "PATCH /api/crm/contacts/:id/restore": "Restore contact",
+          "PATCH /api/crm/contacts/:id/assign": "Assign contact owner",
+        },
+        accounts: {
+          "GET /api/crm/accounts": "List accounts",
+          "POST /api/crm/accounts": "Create account",
+          "PUT /api/crm/accounts/:id": "Update account",
+          "DELETE /api/crm/accounts/:id": "Delete account (soft)",
+        },
+        deals: {
+          "GET /api/crm/deals": "List deals",
+          "POST /api/crm/deals": "Create deal",
+          "PUT /api/crm/deals/:id": "Update deal",
+          "PATCH /api/crm/deals/:id/stage": "Change deal stage",
+          "DELETE /api/crm/deals/:id": "Delete deal (soft)",
+        },
+        activities: {
+          "GET /api/crm/activities": "List activities",
+          "GET /api/crm/activities/entity/:type/:id":
+            "Get activities for entity",
+          "POST /api/crm/activities": "Create activity",
+          "PUT /api/crm/activities/:id": "Update activity",
+        },
+        pipelines: {
+          "GET /api/crm/pipelines": "List pipelines",
+          "POST /api/crm/pipelines": "Create pipeline (Admin)",
+          "PUT /api/crm/pipelines/:id/stages": "Update pipeline stages (Admin)",
+        },
+        leadConversion: {
+          "POST /api/crm/leads/:id/convert":
+            "Convert lead to Contact+Account+Deal",
+        },
+        workflows: {
+          "GET /api/crm/workflows/rules": "List automation rules",
+          "POST /api/crm/workflows/rules": "Create rule (Admin)",
+          "GET /api/crm/workflows/executions": "List executions (Admin)",
+        },
+        blueprints: {
+          "GET /api/crm/blueprints": "List blueprints",
+          "POST /api/crm/blueprints": "Create blueprint (Admin)",
+          "POST /api/crm/blueprints/validate": "Validate transition",
+        },
+        analytics: {
+          "GET /api/crm/analytics/snapshot": "CRM dashboard snapshot",
+          "GET /api/crm/analytics/funnel/:pipelineId": "Deal funnel",
+          "GET /api/crm/analytics/lead-source": "Lead source performance",
+          "GET /api/crm/analytics/owner-performance":
+            "Owner performance (Admin)",
+          "GET /api/crm/analytics/stage-duration/:pipelineId": "Stage duration",
+        },
       },
     },
   });

@@ -13,6 +13,24 @@ import {
   toggleUserActive,
   changeUserRole,
   getPlatformActivity,
+  // Step 1 — Tenant Operations
+  suspendTenant,
+  reactivateTenant,
+  getTenantHealth,
+  forceLogoutTenant,
+  // Step 2 — Audit Logging
+  getAuditLogs,
+  // Step 3 — Usage Tracking
+  getTenantUsage,
+  // Step 4 — Soft Delete Management
+  getDeletedRecords,
+  hardDelete,
+  // Step 5 & 6 — Tenant Settings & Feature Flags
+  getTenantSettings,
+  updateTenantSettings,
+  updateFeatureFlags,
+  // Step 7 — Index Report
+  getIndexReport,
 } from "../controllers/superAdminController.js";
 
 const router = express.Router();
@@ -77,6 +95,125 @@ router.delete(
   deleteTenant,
 );
 
+// ─── Tenant Operations (Step 1) ─────────────────────────────────────────────
+
+router.post(
+  "/tenants/:id/suspend",
+  [
+    commonValidations.mongoId("id"),
+    body("reason")
+      .optional()
+      .trim()
+      .isLength({ max: 500 })
+      .withMessage("Reason cannot exceed 500 characters"),
+    validate,
+  ],
+  suspendTenant,
+);
+
+router.post(
+  "/tenants/:id/reactivate",
+  [commonValidations.mongoId("id"), validate],
+  reactivateTenant,
+);
+
+router.get(
+  "/tenants/:id/health",
+  [commonValidations.mongoId("id"), validate],
+  getTenantHealth,
+);
+
+router.post(
+  "/tenants/:id/force-logout",
+  [commonValidations.mongoId("id"), validate],
+  forceLogoutTenant,
+);
+
+// ─── Tenant Usage (Step 3) ──────────────────────────────────────────────────
+
+router.get(
+  "/tenants/:id/usage",
+  [
+    commonValidations.mongoId("id"),
+    query("days")
+      .optional()
+      .isInt({ min: 1, max: 365 })
+      .withMessage("Days must be between 1 and 365"),
+    validate,
+  ],
+  getTenantUsage,
+);
+
+// ─── Tenant Settings (Step 5) ───────────────────────────────────────────────
+
+router.get(
+  "/tenants/:id/settings",
+  [commonValidations.mongoId("id"), validate],
+  getTenantSettings,
+);
+
+router.put(
+  "/tenants/:id/settings",
+  [
+    commonValidations.mongoId("id"),
+    body("leadStatusPipeline").optional().isArray(),
+    body("customFields").optional().isObject(),
+    body("sla").optional().isObject(),
+    body("assignmentRules").optional().isObject(),
+    body("features").optional().isObject(),
+    validate,
+  ],
+  updateTenantSettings,
+);
+
+// ─── Feature Flags (Step 6) ─────────────────────────────────────────────────
+
+router.put(
+  "/tenants/:id/features",
+  [
+    commonValidations.mongoId("id"),
+    body("features")
+      .notEmpty()
+      .isObject()
+      .withMessage("Features object is required"),
+    validate,
+  ],
+  updateFeatureFlags,
+);
+
+// ─── Soft Delete Management (Step 4) ────────────────────────────────────────
+
+router.get(
+  "/tenants/:id/deleted",
+  [
+    commonValidations.mongoId("id"),
+    query("type").optional().isIn(["all", "leads", "clients"]),
+    validate,
+  ],
+  getDeletedRecords,
+);
+
+router.delete(
+  "/hard-delete/:entityType/:entityId",
+  [
+    param("entityType")
+      .isIn(["lead", "client"])
+      .withMessage("Entity type must be 'lead' or 'client'"),
+    param("entityId").isMongoId().withMessage("Invalid entity ID"),
+    query("tenantId")
+      .notEmpty()
+      .withMessage("tenantId query parameter is required")
+      .isMongoId()
+      .withMessage("Invalid tenant ID"),
+    query("confirm")
+      .optional()
+      .equals("PERMANENT_DELETE")
+      .withMessage("confirm must be 'PERMANENT_DELETE'"),
+    validate,
+  ],
+  hardDelete,
+);
+
 // ─── User Management (Cross-Tenant) ─────────────────────────────────────────
 router.get("/users", getAllUsers);
 
@@ -100,5 +237,11 @@ router.put(
 
 // ─── Platform Activity ───────────────────────────────────────────────────────
 router.get("/activity", getPlatformActivity);
+
+// ─── Audit Logs (Step 2) ────────────────────────────────────────────────────
+router.get("/audit-logs", getAuditLogs);
+
+// ─── Index Report (Step 7) ──────────────────────────────────────────────────
+router.get("/index-report", getIndexReport);
 
 export default router;

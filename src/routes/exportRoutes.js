@@ -10,6 +10,7 @@ import {
 } from "../controllers/exportController.js";
 import { protect, adminOnly, authorize } from "../middlewares/auth.js";
 import { exportLimiter } from "../middlewares/rateLimiter.js";
+import { requireFeature } from "../middlewares/featureFlag.js";
 import { validate } from "../utils/validators.js";
 
 const router = express.Router();
@@ -18,12 +19,15 @@ const router = express.Router();
 router.use(protect);
 router.use(exportLimiter);
 
+// Feature flag gate — exports must be enabled for the tenant
+router.use(requireFeature("exports"));
+
 /**
  * @route   GET /api/export/summary
  * @desc    Get export summary/options
  * @access  Private
  */
-router.get("/summary", getExportSummary);
+router.get("/summary", adminOnly, getExportSummary);
 
 /**
  * @route   GET /api/export/clients
@@ -32,6 +36,7 @@ router.get("/summary", getExportSummary);
  */
 router.get(
   "/clients",
+  adminOnly,
   [
     query("event").optional().isMongoId().withMessage("Invalid event ID"),
     query("marketingPerson")
@@ -102,7 +107,7 @@ router.get(
  */
 router.get(
   "/leads",
-  authorize("admin", "marketing"),
+  adminOnly,
   [
     query("status")
       .optional()

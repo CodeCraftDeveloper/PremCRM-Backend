@@ -149,6 +149,17 @@ const clientSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    // Soft delete support
+    deletedAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    deletedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
   },
   {
     timestamps: true,

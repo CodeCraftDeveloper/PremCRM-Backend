@@ -22,24 +22,24 @@ const getLocalRateCounter = (websiteId) => {
 
 /**
  * Middleware to validate API key for public lead intake endpoints
- * Extracts and validates API key from headers or body
+ * Extracts and validates API key from HEADERS ONLY (body extraction removed for security)
  * Attaches website data to req.website
  */
 export const validateApiKey = async (req, res, next) => {
   try {
-    // Get API key from header or body
+    // SECURITY: Only accept API key from headers — never from body
     const apiKey =
       req.headers["x-api-key"] ||
-      req.headers["authorization"]?.replace("Bearer ", "") ||
-      req.body?.apiKey;
+      req.headers["authorization"]?.replace("Bearer ", "");
 
     if (!apiKey) {
       logger.warn(`Lead API: Missing API key from ${req.ip}`);
       return next(ApiError.unauthorized("API key is required"));
     }
 
-    // Check Redis cache first (cache for 5 minutes)
-    const cacheKey = `api_key:${apiKey}`;
+    // SECURITY: Cache lookup uses SHA-256 hash of the key, never raw key
+    const keyHash = crypto.createHash("sha256").update(apiKey).digest("hex");
+    const cacheKey = `api_key:${keyHash}`;
     let website = await redis.get(cacheKey);
 
     if (website) {

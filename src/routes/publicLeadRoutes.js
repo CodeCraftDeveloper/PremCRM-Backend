@@ -4,6 +4,8 @@ import {
   submitPublicLead,
   publicApiHealth,
   getPublicApiDocs,
+  getPublicProducts,
+  getPublicFormSchema,
 } from "../controllers/publicLeadController.js";
 import {
   validateApiKey,
@@ -16,8 +18,12 @@ import {
   handleUploadError,
 } from "../middlewares/upload.js";
 import { validate } from "../utils/validators.js";
+import { publicLeadLimiter } from "../middlewares/rateLimiter.js";
 
 const router = express.Router();
+
+// Apply per-IP rate limit to all public-lead routes
+router.use(publicLeadLimiter);
 
 /**
  * Public routes (no authentication required, API key based)
@@ -113,6 +119,25 @@ router.post(
  * @access  Public (API key required)
  */
 router.get("/health", validateApiKey, logPublicApiRequest, publicApiHealth);
+
+/**
+ * @route   GET /api/public/products
+ * @desc    Get product/service list for this website (for form dropdowns)
+ * @access  Public (API key required)
+ */
+router.get("/products", validateApiKey, logPublicApiRequest, getPublicProducts);
+
+/**
+ * @route   GET /api/public/form-schema
+ * @desc    Get full form schema (products + custom fields) for this website
+ * @access  Public (API key required)
+ */
+router.get(
+  "/form-schema",
+  validateApiKey,
+  logPublicApiRequest,
+  getPublicFormSchema,
+);
 
 /**
  * @route   GET /api/public/docs

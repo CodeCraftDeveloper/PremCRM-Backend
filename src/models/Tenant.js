@@ -82,6 +82,25 @@ const tenantSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    suspendedAt: {
+      type: Date,
+      default: null,
+    },
+    suspendedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    suspendReason: {
+      type: String,
+      default: null,
+      trim: true,
+      maxlength: [500, "Suspend reason cannot exceed 500 characters"],
+    },
+    lastActivityAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,

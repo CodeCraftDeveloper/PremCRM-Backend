@@ -51,7 +51,7 @@ const buildAttachmentRecords = async (leadId, files = []) => {
 
     const uploadDir = path.join(
       process.cwd(),
-      "public",
+      "private",
       "uploads",
       "lead-attachments",
       String(leadId),
@@ -66,7 +66,7 @@ const buildAttachmentRecords = async (leadId, files = []) => {
       originalName: file.originalname,
       mimeType: file.mimetype,
       size: file.size,
-      url: `/uploads/lead-attachments/${leadId}/${uniqueName}`,
+      url: `/api/v1/files/lead-attachments/${leadId}/${uniqueName}`,
       s3Key: null,
       uploadedAt: new Date(),
     });
@@ -110,7 +110,17 @@ const submitPublicLead = asyncHandler(async (req, res, next) => {
       company: req.body.company?.trim(),
       productInterest: req.body.productInterest?.trim(),
       source: req.body.source?.trim(),
-      customFields: req.body.customFields || {},
+      customFields: (() => {
+        let cf = req.body.customFields || {};
+        if (typeof cf === "string") {
+          try {
+            cf = JSON.parse(cf);
+          } catch {
+            cf = {};
+          }
+        }
+        return cf;
+      })(),
       tags: req.body.tags || [],
       notes: req.body.notes?.trim(),
     };
@@ -131,11 +141,11 @@ const submitPublicLead = asyncHandler(async (req, res, next) => {
 
     let attachmentsCount = 0;
     if (result?.leadId && req.files?.length) {
-      const lead = await Lead.findById(result.leadId);
-      if (
-        lead &&
-        lead.tenantId.toString() === req.website.tenantId.toString()
-      ) {
+      const lead = await Lead.findOne({
+        _id: result.leadId,
+        tenantId: req.website.tenantId,
+      });
+      if (lead) {
         const newAttachments = await buildAttachmentRecords(
           lead._id,
           req.files,
@@ -342,4 +352,85 @@ curl -X POST https://yourcrm.com/api/public/lead \\
   }
 });
 
-export { submitPublicLead, publicApiHealth, getPublicApiDocs };
+/**
+ * @desc    Get product list for a website (for external form dropdowns)
+ * @route   GET /api/public/products
+ * @access  Public (API key required)
+ */
+const getPublicProducts = asyncHandler(async (req, res, next) => {
+  try {
+    const products = req.website?.products || [];
+    successResponse(
+      res,
+      {
+        websiteName: req.website?.name,
+        products,
+      },
+      "Products retrieved",
+    );
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * @desc    Get complete form schema for a website (products + custom fields)
+ * @route   GET /api/public/form-schema
+ * @access  Public (API key required)
+ */
+const getPublicFormSchema = asyncHandler(async (req, res, next) => {
+  try {
+    const products = req.website?.products || [];
+    const formFields = (req.website?.formFields || [])
+      .filter((f) => f.isActive !== false)
+      .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+      .map((f) => ({
+        fieldName: f.fieldName,
+        label: f.label,
+        type: f.type,
+        placeholder: f.placeholder || "",
+        description: f.description || "",
+        defaultValue: f.defaultValue ?? "",
+        required: !!f.required,
+        options: f.options || [],
+        validation: f.validation || {},
+        fileConfig: f.fileConfig || {},
+        conditionalLogic: f.conditionalLogic || {},
+        width: f.width || "full",
+        cssClass: f.cssClass || "",
+      }));
+
+    const rawConfig = req.website?.formConfig || {};
+    const formConfig = {
+      formTitle: rawConfig.formTitle || "",
+      formDescription: rawConfig.formDescription || "",
+      submitButtonText: rawConfig.submitButtonText || "Submit",
+      successMessage:
+        rawConfig.successMessage || "Thank you! We will contact you soon.",
+      redirectUrl: rawConfig.redirectUrl || "",
+      theme: rawConfig.theme || {},
+      defaultFields: rawConfig.defaultFields || {},
+    };
+
+    successResponse(
+      res,
+      {
+        websiteName: req.website?.name,
+        products,
+        formFields,
+        formConfig,
+      },
+      "Form schema retrieved",
+    );
+  } catch (error) {
+    next(error);
+  }
+});
+
+export {
+  submitPublicLead,
+  publicApiHealth,
+  getPublicApiDocs,
+  getPublicProducts,
+  getPublicFormSchema,
+};

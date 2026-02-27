@@ -13,15 +13,22 @@ import {
   createInvite,
   acceptInvite,
 } from "../controllers/authController.js";
-import { protect } from "../middlewares/auth.js";
+import { protect, authorize } from "../middlewares/auth.js";
+import { getCsrfToken } from "../middlewares/csrf.js";
 import {
   authLimiter,
   passwordResetLimiter,
 } from "../middlewares/rateLimiter.js";
 import { validate, commonValidations } from "../utils/validators.js";
-import { authorize } from "../shared/middlewares/rbacMiddleware.js";
 
 const router = express.Router();
+
+/**
+ * @route   GET /api/auth/csrf-token
+ * @desc    Get a CSRF token (sets csrf-token cookie + returns token in body)
+ * @access  Public
+ */
+router.get("/csrf-token", getCsrfToken);
 
 /**
  * @route   POST /api/auth/login

@@ -1,7 +1,7 @@
 import express from "express";
 import { body } from "express-validator";
 import { updateRemark, deleteRemark } from "../controllers/remarkController.js";
-import { protect } from "../middlewares/auth.js";
+import { protect, authorize } from "../middlewares/auth.js";
 import { validate, commonValidations } from "../utils/validators.js";
 
 const router = express.Router();
@@ -16,6 +16,7 @@ router.use(protect);
  */
 router.put(
   "/:id",
+  authorize("admin", "marketing"),
   [
     commonValidations.mongoId("id"),
     body("content")
@@ -39,6 +40,7 @@ router.put(
  */
 router.delete(
   "/:id",
+  authorize("admin", "marketing"),
   [commonValidations.mongoId("id"), validate],
   deleteRemark,
 );

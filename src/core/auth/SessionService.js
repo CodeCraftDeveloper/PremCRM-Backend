@@ -73,8 +73,9 @@ class SessionService {
    * @returns {Object} Updated session with duration
    */
   static async endSession(sessionId, tenantId) {
+    if (!tenantId) throw new Error("tenantId is required");
     try {
-      const session = await UserSession.findById(sessionId);
+      const session = await UserSession.findOne({ _id: sessionId, tenantId });
 
       if (!session) {
         throw new Error("Session not found");
@@ -86,8 +87,8 @@ class SessionService {
       );
 
       // Update session with duration BEFORE saving
-      const updatedSession = await UserSession.findByIdAndUpdate(
-        sessionId,
+      const updatedSession = await UserSession.findOneAndUpdate(
+        { _id: sessionId, tenantId },
         {
           isActive: false,
           logoutTime,
@@ -118,18 +119,23 @@ class SessionService {
    * @param {String} userId - User ID
    * @returns {Array} Active sessions
    */
-  static async getUserActiveSessions(userId) {
+  static async getUserActiveSessions(userId, tenantId) {
+    if (!tenantId) throw new Error("tenantId is required");
     try {
       // Try cache first
       const cached = await redis.smembers(`user:${userId}:activeSessions`);
       if (cached.length > 0) {
-        return await UserSession.find({ _id: { $in: cached }, isActive: true });
+        return await UserSession.find({
+          _id: { $in: cached },
+          isActive: true,
+          tenantId,
+        });
       }
 
-      // Query and cache
       const sessions = await UserSession.find({
         user: userId,
         isActive: true,
+        tenantId,
       }).sort({ loginTime: -1 });
 
       if (sessions.length > 0) {
@@ -163,7 +169,9 @@ class SessionService {
         const updates = activeSessions.map((session) => {
           const duration = Math.max(
             0,
-            Math.floor((now.getTime() - new Date(session.loginTime).getTime()) / 1000),
+            Math.floor(
+              (now.getTime() - new Date(session.loginTime).getTime()) / 1000,
+            ),
           );
           return {
             updateOne: {
@@ -183,7 +191,9 @@ class SessionService {
 
       // Clear all caches for this user
       await redis.del(`user:${userId}:activeSessions`);
-      const sessionKeys = activeSessions.map((session) => `session:${session._id}`);
+      const sessionKeys = activeSessions.map(
+        (session) => `session:${session._id}`,
+      );
       if (sessionKeys.length > 0) {
         await redis.del(...sessionKeys);
       }
@@ -202,9 +212,13 @@ class SessionService {
    * @param {Object} dateRange - {start, end}
    * @returns {Object} Session metrics
    */
-  static async getSessionMetrics(userId, dateRange = {}) {
+  static async getSessionMetrics(userId, tenantId, dateRange = {}) {
+    if (!tenantId) throw new Error("tenantId is required");
     try {
-      const matchStage = { user: new mongoose.Types.ObjectId(userId) };
+      const matchStage = {
+        user: new mongoose.Types.ObjectId(userId),
+        tenantId: new mongoose.Types.ObjectId(tenantId),
+      };
 
       if (dateRange.start || dateRange.end) {
         matchStage.loginTime = {};

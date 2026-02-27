@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { LEAD_STATUSES } from "../constants/leadConstants.js";
 
 const leadSchema = new mongoose.Schema(
   {
@@ -56,7 +57,7 @@ const leadSchema = new mongoose.Schema(
     // Lead status tracking
     status: {
       type: String,
-      enum: ["new", "contacted", "interested", "qualified", "closed", "lost"],
+      enum: LEAD_STATUSES,
       default: "new",
       index: true,
     },
@@ -146,6 +147,13 @@ const leadSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.Mixed,
       default: {},
     },
+    customData: {
+      type: Map,
+      of: mongoose.Schema.Types.Mixed,
+      default: () => new Map(),
+    },
+    /** Flattened searchable custom field values for efficient queries */
+    searchIndex: { type: mongoose.Schema.Types.Mixed, default: {} },
     // Followup tracking
     lastContactedAt: {
       type: Date,
@@ -161,8 +169,28 @@ const leadSchema = new mongoose.Schema(
       default: 0,
     },
     // Conversion tracking
+    isConverted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
     convertedAt: {
       type: Date,
+      default: null,
+    },
+    convertedToContactId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Contact",
+      default: null,
+    },
+    convertedToAccountId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Account",
+      default: null,
+    },
+    convertedToDealId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Deal",
       default: null,
     },
     conversionValue: {
@@ -199,6 +227,17 @@ const leadSchema = new mongoose.Schema(
     // Activity tracking
     lastActivityAt: {
       type: Date,
+      default: null,
+    },
+    // Soft delete support
+    deletedAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    deletedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
       default: null,
     },
   },

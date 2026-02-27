@@ -25,7 +25,7 @@ const getLeadRemarks = asyncHandler(async (req, res, next) => {
   }
 
   // Build query
-  const query = { lead: leadId };
+  const query = { lead: leadId, tenantId: req.user.tenantId };
   if (type) query.type = type;
 
   const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -68,6 +68,7 @@ const createLeadRemark = asyncHandler(async (req, res, next) => {
   const remark = await LeadRemark.create({
     lead: leadId,
     user: req.user._id,
+    tenantId: req.user.tenantId,
     content,
     type,
     isInternal,
@@ -75,15 +76,21 @@ const createLeadRemark = asyncHandler(async (req, res, next) => {
 
   // Update lead's last contacted date if contact-related
   if (["call", "email", "meeting", "follow_up"].includes(type)) {
-    await Lead.findByIdAndUpdate(leadId, {
-      lastContactedAt: new Date(),
-      contactAttempts: (lead.contactAttempts || 0) + 1,
-      lastActivityAt: new Date(),
-    });
+    await Lead.findOneAndUpdate(
+      { _id: leadId, tenantId: req.user.tenantId },
+      {
+        lastContactedAt: new Date(),
+        contactAttempts: (lead.contactAttempts || 0) + 1,
+        lastActivityAt: new Date(),
+      },
+    );
   } else {
-    await Lead.findByIdAndUpdate(leadId, {
-      lastActivityAt: new Date(),
-    });
+    await Lead.findOneAndUpdate(
+      { _id: leadId, tenantId: req.user.tenantId },
+      {
+        lastActivityAt: new Date(),
+      },
+    );
   }
 
   // Log activity
@@ -131,7 +138,10 @@ const updateLeadRemark = asyncHandler(async (req, res, next) => {
   if (!remark) {
     return next(ApiError.notFound("Remark not found"));
   }
-  if (!remark.lead || String(remark.lead.tenantId) !== String(req.user.tenantId)) {
+  if (
+    !remark.lead ||
+    String(remark.lead.tenantId) !== String(req.user.tenantId)
+  ) {
     return next(ApiError.notFound("Remark not found"));
   }
 
@@ -148,11 +158,12 @@ const updateLeadRemark = asyncHandler(async (req, res, next) => {
     return next(ApiError.forbidden("System remarks cannot be edited"));
   }
 
-  const updatedRemark = await LeadRemark.findByIdAndUpdate(
-    req.params.id,
-    { content, isPinned },
-    { new: true, runValidators: true },
-  ).populate("user", "name email avatar");
+  // Update on the already-verified document to prevent TOCTOU bypass
+  if (content !== undefined) remark.content = content;
+  if (isPinned !== undefined) remark.isPinned = isPinned;
+  await remark.save();
+  await remark.populate("user", "name email avatar");
+  const updatedRemark = remark;
 
   logger.info(`Lead remark updated: ${req.params.id} by ${req.user.email}`);
 
@@ -177,7 +188,10 @@ const deleteLeadRemark = asyncHandler(async (req, res, next) => {
   if (!remark) {
     return next(ApiError.notFound("Remark not found"));
   }
-  if (!remark.lead || String(remark.lead.tenantId) !== String(req.user.tenantId)) {
+  if (
+    !remark.lead ||
+    String(remark.lead.tenantId) !== String(req.user.tenantId)
+  ) {
     return next(ApiError.notFound("Remark not found"));
   }
 
@@ -194,7 +208,8 @@ const deleteLeadRemark = asyncHandler(async (req, res, next) => {
     return next(ApiError.forbidden("System remarks cannot be deleted"));
   }
 
-  await LeadRemark.findByIdAndDelete(req.params.id);
+  // Delete the already-verified document to prevent TOCTOU bypass
+  await remark.deleteOne();
 
   logger.info(`Lead remark deleted: ${req.params.id} by ${req.user.email}`);
 

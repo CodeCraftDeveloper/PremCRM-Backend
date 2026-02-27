@@ -131,7 +131,9 @@ const getAllMarketingStatuses = async (tenantId) => {
     tenantId,
   }).select("-password -refreshToken");
 
-  return Promise.all(marketingUsers.map((user) => buildMarketingUserStatus(user)));
+  return Promise.all(
+    marketingUsers.map((user) => buildMarketingUserStatus(user)),
+  );
 };
 
 export const initializeSocketServer = (httpServer) => {
@@ -160,6 +162,26 @@ export const initializeSocketServer = (httpServer) => {
         return next(new Error("Authentication failed"));
       }
 
+      // SECURITY: Verify tenant match (parity with HTTP protect middleware)
+      if (
+        !decoded.tenantId ||
+        String(user.tenantId) !== String(decoded.tenantId)
+      ) {
+        logger.warn(
+          `WebSocket tenant mismatch: user ${user._id} token=${decoded.tenantId} db=${user.tenantId}`,
+        );
+        return next(new Error("Authentication failed — tenant mismatch"));
+      }
+
+      // SECURITY: Verify tenant is active (parity with HTTP protect middleware)
+      const Tenant = (await import("../models/Tenant.js")).default;
+      const tenant = await Tenant.findById(user.tenantId)
+        .select("isActive")
+        .lean();
+      if (!tenant || !tenant.isActive) {
+        return next(new Error("Tenant is inactive"));
+      }
+
       socket.data.user = user;
       next();
     } catch (error) {
@@ -173,7 +195,8 @@ export const initializeSocketServer = (httpServer) => {
     const tenantId = String(user.tenantId);
     const userRoom = `user:${userId}`;
     const adminRoom = `admins:${tenantId}`;
-    const clientSessionId = getClientSessionIdFromSocket(socket) || `socket:${socket.id}`;
+    const clientSessionId =
+      getClientSessionIdFromSocket(socket) || `socket:${socket.id}`;
     const sessionRoom = `session:${userId}:${clientSessionId}`;
     const disconnectKey = `${userId}:${clientSessionId}`;
 
@@ -221,7 +244,8 @@ export const initializeSocketServer = (httpServer) => {
       const timeoutId = setTimeout(async () => {
         try {
           const stillConnected =
-            (io.sockets.adapter.rooms.get(socket.data.sessionRoom)?.size || 0) > 0;
+            (io.sockets.adapter.rooms.get(socket.data.sessionRoom)?.size || 0) >
+            0;
           if (stillConnected) return;
 
           if (socket.data.sessionId) {

@@ -50,7 +50,9 @@ const getUsers = asyncHandler(async (req, res, next) => {
   const query = { tenantId: req.user.tenantId };
 
   if (role) query.role = role;
-  if (isActive !== undefined) query.isActive = isActive === "true";
+  if (isActive === "true" || isActive === "false") {
+    query.isActive = isActive === "true";
+  }
   if (approvalStatus) query.approvalStatus = approvalStatus;
   if (search) {
     query.$or = [
@@ -96,31 +98,6 @@ const getUser = asyncHandler(async (req, res, next) => {
 
   if (!user) {
     return next(ApiError.notFound("User not found"));
-  }
-
-  if (await isPlatformOwnerUser(user)) {
-    return next(ApiError.forbidden("Platform Owner account cannot be deleted"));
-  }
-
-  if (await isPlatformOwnerUser(user)) {
-    if (role && role !== user.role) {
-      return next(
-        ApiError.forbidden("Platform Owner permissions cannot be changed"),
-      );
-    }
-    if (isActive === false) {
-      return next(
-        ApiError.forbidden("Platform Owner account cannot be deactivated"),
-      );
-    }
-  }
-
-  if (role === "superadmin" && role !== user.role) {
-    return next(
-      ApiError.forbidden(
-        "Promoting users to superadmin is not allowed from this endpoint",
-      ),
-    );
   }
 
   // Get user's recent activity

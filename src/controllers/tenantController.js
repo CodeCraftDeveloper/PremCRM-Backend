@@ -8,6 +8,8 @@ import {
   successResponse,
 } from "../utils/apiResponse.js";
 
+const PLATFORM_TENANT_SLUG = "__platform__";
+
 const normalizeSlug = (value = "") =>
   String(value)
     .trim()
@@ -121,7 +123,7 @@ const bootstrapTenant = asyncHandler(async (req, res, next) => {
 
 const getTenants = asyncHandler(async (req, res) => {
   if (req.user.role === "superadmin") {
-    const tenants = await Tenant.find({})
+    const tenants = await Tenant.find({ slug: { $ne: PLATFORM_TENANT_SLUG } })
       .sort({ createdAt: -1 })
       .select(
         "name slug company plan activeUsers isActive settings subscription createdAt",

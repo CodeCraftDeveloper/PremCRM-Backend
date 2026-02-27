@@ -12,3 +12,5 @@ export { default as leadRoutes } from "./leadRoutes.js";
 export { default as websiteRoutes } from "./websiteRoutes.js";
 export { default as tenantRoutes } from "./tenantRoutes.js";
 export { default as superAdminRoutes } from "./superAdminRoutes.js";
+export { default as ticketRoutes } from "./ticketRoutes.js";
+export { default as fileRoutes } from "./fileRoutes.js";

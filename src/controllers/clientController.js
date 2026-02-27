@@ -3,6 +3,8 @@ import Remark from "../models/Remark.js";
 import Event from "../models/Event.js";
 import User from "../models/User.js";
 import ActivityLog from "../models/ActivityLog.js";
+import AuditLog from "../models/AuditLog.js";
+import UsageMetric from "../models/UsageMetric.js";
 import fs from "fs/promises";
 import path from "path";
 import crypto from "crypto";
@@ -13,38 +15,36 @@ import {
   paginatedResponse,
 } from "../utils/apiResponse.js";
 import { uploadToS3, deleteFromS3, getSignedFileUrl } from "../config/s3.js";
-import {
-  deleteCachePattern,
-} from "../config/redis.js";
+import { deleteCachePattern } from "../config/redis.js";
 import logger from "../utils/logger.js";
 
 const normalizePhone = (phone = "") => String(phone).replace(/\D/g, "");
 const isS3Configured = () =>
   Boolean(
     process.env.AWS_REGION &&
-      process.env.AWS_ACCESS_KEY_ID &&
-      process.env.AWS_SECRET_ACCESS_KEY &&
-      process.env.AWS_S3_BUCKET,
+    process.env.AWS_ACCESS_KEY_ID &&
+    process.env.AWS_SECRET_ACCESS_KEY &&
+    process.env.AWS_S3_BUCKET,
   );
 
-const LOCAL_UPLOADS_DIR = path.resolve(process.cwd(), "public", "uploads");
+const LOCAL_UPLOADS_DIR = path.resolve(process.cwd(), "private", "uploads");
 const LOCAL_KEY_PREFIX = "local:";
 
 const localKeyToFilePath = (key) => {
   if (!key?.startsWith(LOCAL_KEY_PREFIX)) return null;
   const relative = key.slice(LOCAL_KEY_PREFIX.length).replace(/^\/+/, "");
-  return path.resolve(process.cwd(), "public", relative);
+  return path.resolve(process.cwd(), "private", relative);
 };
 
 const saveVisitingCardLocally = async (file, clientId) => {
   const ext = path.extname(file.originalname || "") || ".jpg";
   const filename = `${Date.now()}-${crypto.randomBytes(6).toString("hex")}${ext}`;
   const relativeDir = path.join("uploads", "visiting-cards", String(clientId));
-  const absoluteDir = path.resolve(process.cwd(), "public", relativeDir);
+  const absoluteDir = path.resolve(process.cwd(), "private", relativeDir);
   await fs.mkdir(absoluteDir, { recursive: true });
 
   const relativePath = path.join(relativeDir, filename).replace(/\\/g, "/");
-  const absolutePath = path.resolve(process.cwd(), "public", relativePath);
+  const absolutePath = path.resolve(process.cwd(), "private", relativePath);
   await fs.writeFile(absolutePath, file.buffer);
 
   return {
@@ -54,7 +54,9 @@ const saveVisitingCardLocally = async (file, clientId) => {
 };
 
 const findExistingContactOwner = async ({ tenantId, email, phone }) => {
-  const normalizedEmail = String(email || "").trim().toLowerCase();
+  const normalizedEmail = String(email || "")
+    .trim()
+    .toLowerCase();
   const normalizedPhone = normalizePhone(phone);
   const or = [];
 
@@ -111,7 +113,9 @@ const pickLeastLoadedMarketingUser = async (tenantId) => {
     },
   ]);
 
-  const loadMap = new Map(workloads.map((item) => [String(item._id), item.count]));
+  const loadMap = new Map(
+    workloads.map((item) => [String(item._id), item.count]),
+  );
   return marketers.reduce((leastLoaded, current) => {
     const leastCount = loadMap.get(String(leastLoaded._id)) || 0;
     const currentCount = loadMap.get(String(current._id)) || 0;
@@ -293,10 +297,12 @@ const getClient = asyncHandler(async (req, res, next) => {
   if (client.visitingCard?.key) {
     try {
       if (client.visitingCard.key.startsWith(LOCAL_KEY_PREFIX)) {
+        // Use authenticated file route instead of direct static serving
         const relativePath = client.visitingCard.key
           .slice(LOCAL_KEY_PREFIX.length)
           .replace(/^\/+/, "");
-        visitingCardUrl = `${req.protocol}://${req.get("host")}/${relativePath}`;
+        const filename = path.basename(relativePath);
+        visitingCardUrl = `/api/v1/files/visiting-cards/${client._id}/${filename}`;
       } else {
         visitingCardUrl = await getSignedFileUrl(client.visitingCard.key);
       }
@@ -428,6 +434,22 @@ const createClient = asyncHandler(async (req, res, next) => {
   await deleteCachePattern("clients:*");
   await deleteCachePattern("dashboard:*");
 
+  // Track usage metric
+  UsageMetric.increment(tenantId, "leadsCreated", 1);
+
+  // Audit log
+  AuditLog.record({
+    tenantId,
+    userId: req.user._id,
+    action: "client.create",
+    entityType: "client",
+    entityId: client._id,
+    description: `Client created: ${client.name}`,
+    requestId: req.requestId,
+    ipAddress: req.ip,
+    userAgent: req.get("User-Agent"),
+  });
+
   logger.info(`Client created: ${client.name} by ${req.user.email}`);
 
   const populatedClient = await Client.findOne({ _id: client._id, tenantId })
@@ -522,7 +544,9 @@ const updateClient = asyncHandler(async (req, res, next) => {
       notes,
       tags,
       lastContactedDate,
-      lastContactedBy: lastContactedDate ? req.user._id : client.lastContactedBy,
+      lastContactedBy: lastContactedDate
+        ? req.user._id
+        : client.lastContactedBy,
       marketingPerson: marketingPersonForUpdate,
     },
     { new: true, runValidators: true },
@@ -550,6 +574,20 @@ const updateClient = asyncHandler(async (req, res, next) => {
       resourceId: client._id,
       description: `Client status changed: ${oldStatus} -> ${followUpStatus}`,
       metadata: { oldStatus, newStatus: followUpStatus },
+      ipAddress: req.ip,
+      userAgent: req.get("User-Agent"),
+    });
+
+    // Audit log for status change
+    AuditLog.record({
+      tenantId,
+      userId: req.user._id,
+      action: "client.status_change",
+      entityType: "client",
+      entityId: client._id,
+      description: `Client status: ${oldStatus} -> ${followUpStatus}`,
+      metadata: { oldStatus, newStatus: followUpStatus },
+      requestId: req.requestId,
       ipAddress: req.ip,
       userAgent: req.get("User-Agent"),
     });
@@ -601,8 +639,10 @@ const deleteClient = asyncHandler(async (req, res, next) => {
     return next(ApiError.forbidden("Access denied"));
   }
 
-  // Soft delete
+  // Soft delete with audit trail
   client.isActive = false;
+  client.deletedAt = new Date();
+  client.deletedBy = req.user._id;
   await client.save();
 
   // Log activity
@@ -613,6 +653,19 @@ const deleteClient = asyncHandler(async (req, res, next) => {
     resourceType: "client",
     resourceId: client._id,
     description: `Deleted client: ${client.name}`,
+    ipAddress: req.ip,
+    userAgent: req.get("User-Agent"),
+  });
+
+  // Audit log
+  AuditLog.record({
+    tenantId,
+    userId: req.user._id,
+    action: "client.delete",
+    entityType: "client",
+    entityId: client._id,
+    description: `Client soft-deleted: ${client.name}`,
+    requestId: req.requestId,
     ipAddress: req.ip,
     userAgent: req.get("User-Agent"),
   });
@@ -708,11 +761,7 @@ const uploadVisitingCard = asyncHandler(async (req, res, next) => {
 
   logger.info(`Visiting card uploaded for client: ${client.name}`);
 
-  successResponse(
-    res,
-    { client },
-    "Visiting card uploaded successfully",
-  );
+  successResponse(res, { client }, "Visiting card uploaded successfully");
 });
 
 /**
@@ -819,12 +868,55 @@ const bulkAssignClients = asyncHandler(async (req, res, next) => {
   );
 });
 
+/**
+ * @desc    Restore soft-deleted client
+ * @route   PUT /api/clients/:id/restore
+ * @access  Private/Admin
+ */
+const restoreClient = asyncHandler(async (req, res, next) => {
+  const tenantId = req.user.tenantId;
+  const client = await Client.findOne({
+    _id: req.params.id,
+    tenantId,
+    deletedAt: { $ne: null },
+  });
+
+  if (!client) {
+    return next(ApiError.notFound("Deleted client not found"));
+  }
+
+  client.isActive = true;
+  client.deletedAt = null;
+  client.deletedBy = null;
+  await client.save();
+
+  AuditLog.record({
+    tenantId,
+    userId: req.user._id,
+    action: "client.restore",
+    entityType: "client",
+    entityId: client._id,
+    description: `Client restored: ${client.name}`,
+    requestId: req.requestId,
+    ipAddress: req.ip,
+    userAgent: req.get("User-Agent"),
+  });
+
+  await deleteCachePattern("clients:*");
+  await deleteCachePattern("dashboard:*");
+
+  logger.info(`Client restored: ${client.name} by ${req.user.email}`);
+
+  successResponse(res, null, "Client restored successfully");
+});
+
 export {
   getClients,
   getClient,
   createClient,
   updateClient,
   deleteClient,
+  restoreClient,
   uploadVisitingCard,
   getPendingFollowUps,
   getClientStats,

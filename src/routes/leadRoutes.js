@@ -13,11 +13,11 @@ import {
   getUnassignedCount,
   autoAssignLeads,
   deleteLead,
+  restoreLead,
   uploadLeadAttachments,
   deleteLeadAttachment,
 } from "../controllers/leadController.js";
-import { protect } from "../middlewares/auth.js";
-import { authorize } from "../shared/middlewares/rbacMiddleware.js";
+import { protect, authorize } from "../middlewares/auth.js";
 import {
   uploadLeadAttachments as uploadLeadAttachmentsMiddleware,
   handleUploadError,
@@ -29,6 +29,7 @@ import {
   deleteLeadRemark,
 } from "../controllers/leadRemarkController.js";
 import { validate } from "../utils/validators.js";
+import { LEAD_STATUSES } from "../constants/leadConstants.js";
 
 const router = express.Router();
 
@@ -45,7 +46,7 @@ router.get(
   [
     query("status")
       .optional()
-      .isIn(["new", "contacted", "interested", "qualified", "closed", "lost"])
+      .isIn(LEAD_STATUSES)
       .withMessage("Invalid status"),
     query("page")
       .optional()
@@ -65,14 +66,22 @@ router.get(
  * @desc    Get count of unassigned leads
  * @access  Private
  */
-router.get("/unassigned/count", getUnassignedCount);
+router.get(
+  "/unassigned/count",
+  authorize("admin", "superadmin"),
+  getUnassignedCount,
+);
 
 /**
  * @route   GET /api/leads/analytics/dashboard
  * @desc    Get lead analytics
  * @access  Private
  */
-router.get("/analytics/dashboard", getLeadAnalytics);
+router.get(
+  "/analytics/dashboard",
+  authorize("admin", "superadmin"),
+  getLeadAnalytics,
+);
 
 /**
  * @route   POST /api/leads
@@ -97,8 +106,7 @@ router.post(
       .withMessage("Please provide a valid email")
       .normalizeEmail(),
     body("websiteId")
-      .notEmpty()
-      .withMessage("Website ID is required")
+      .optional()
       .isMongoId()
       .withMessage("Invalid website ID"),
     validate,
@@ -162,12 +170,13 @@ router.put(
  */
 router.put(
   "/:id/status",
+  authorize("admin", "marketing"),
   [
     param("id").isMongoId().withMessage("Invalid lead ID"),
     body("status")
       .notEmpty()
       .withMessage("Status is required")
-      .isIn(["new", "contacted", "interested", "qualified", "closed", "lost"])
+      .isIn(LEAD_STATUSES)
       .withMessage("Invalid status"),
     validate,
   ],
@@ -240,6 +249,18 @@ router.delete(
   authorize("admin", "superadmin"),
   [param("id").isMongoId().withMessage("Invalid lead ID"), validate],
   deleteLead,
+);
+
+/**
+ * @route   PUT /api/leads/:id/restore
+ * @desc    Restore a soft-deleted lead
+ * @access  Private (admin)
+ */
+router.put(
+  "/:id/restore",
+  authorize("admin", "superadmin"),
+  [param("id").isMongoId().withMessage("Invalid lead ID"), validate],
+  restoreLead,
 );
 
 /**
