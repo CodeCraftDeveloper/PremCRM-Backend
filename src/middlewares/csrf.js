@@ -66,7 +66,7 @@ export function csrfProtection(req, res, next) {
   res.cookie("csrf-token", csrfToken, {
     httpOnly: false, // JS must read it
     secure: isProduction,
-    sameSite: isProduction ? "Strict" : "Lax",
+    sameSite: isProduction ? "none" : "lax",
     path: "/",
     maxAge: 24 * 60 * 60 * 1000, // 24 h
   });
@@ -101,7 +101,7 @@ export function getCsrfToken(req, res) {
   res.cookie("csrf-token", token, {
     httpOnly: false,
     secure: isProduction,
-    sameSite: isProduction ? "Strict" : "Lax",
+    sameSite: isProduction ? "none" : "lax",
     path: "/",
     maxAge: 24 * 60 * 60 * 1000,
   });

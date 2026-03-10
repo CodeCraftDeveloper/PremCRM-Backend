@@ -132,17 +132,19 @@ const bootstrapTenant = asyncHandler(async (req, res, next) => {
     tenantSlug,
   });
 
+  const isProduction = process.env.NODE_ENV === "production";
+
   res.cookie("accessToken", authResult.accessToken, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
+    secure: isProduction,
+    sameSite: isProduction ? "none" : "lax",
     maxAge: 15 * 60 * 1000,
   });
 
   res.cookie("refreshToken", authResult.refreshToken, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
+    secure: isProduction,
+    sameSite: isProduction ? "none" : "lax",
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 

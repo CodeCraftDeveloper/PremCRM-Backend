@@ -46,6 +46,11 @@ import logger from "./src/utils/logger.js";
 // Initialize express app
 const app = express();
 
+// Trust first proxy (Render, Railway, etc.) so Express sees correct
+// req.protocol / req.ip behind TLS-terminating reverse proxies.
+// Required for `secure` cookies to work in production.
+app.set("trust proxy", 1);
+
 // Attach a unique requestId to every request (must be first)
 app.use(requestIdMiddleware);
 

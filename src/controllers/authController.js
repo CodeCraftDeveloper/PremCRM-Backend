@@ -13,6 +13,16 @@ import logger from "../utils/logger.js";
 
 const PLATFORM_TENANT_SLUG = "__platform__";
 
+// Shared cookie options for auth tokens.
+// Cross-origin deployments (frontend ≠ backend domain) need SameSite=None.
+const isProduction = process.env.NODE_ENV === "production";
+const authCookieOptions = (maxAge) => ({
+  httpOnly: true,
+  secure: isProduction,
+  sameSite: isProduction ? "none" : "lax",
+  ...(maxAge != null && { maxAge }),
+});
+
 /**
  * Extract S3 key from a direct S3 URL if it matches our bucket.
  */
@@ -110,20 +120,17 @@ const login = asyncHandler(async (req, res, next) => {
       tenantSlug,
     });
 
-    // Set httpOnly secure cookie
-    res.cookie("accessToken", result.accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 15 * 60 * 1000, // 15 minutes
-    });
-
-    res.cookie("refreshToken", result.refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    });
+    // Set httpOnly secure cookies
+    res.cookie(
+      "accessToken",
+      result.accessToken,
+      authCookieOptions(15 * 60 * 1000),
+    );
+    res.cookie(
+      "refreshToken",
+      result.refreshToken,
+      authCookieOptions(7 * 24 * 60 * 60 * 1000),
+    );
 
     // Log activity
     await ActivityLog.create({
@@ -178,30 +185,22 @@ const refreshAccessToken = asyncHandler(async (req, res, next) => {
     const tokens = await AuthService.refreshAccessToken(refreshToken);
 
     // Set new cookies
-    res.cookie("accessToken", tokens.accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 15 * 60 * 1000,
-    });
-
-    res.cookie("refreshToken", tokens.refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    res.cookie(
+      "accessToken",
+      tokens.accessToken,
+      authCookieOptions(15 * 60 * 1000),
+    );
+    res.cookie(
+      "refreshToken",
+      tokens.refreshToken,
+      authCookieOptions(7 * 24 * 60 * 60 * 1000),
+    );
 
     successResponse(res, {}, "Token refreshed successfully");
   } catch (error) {
     // If refresh fails, clear stale cookies so client can re-auth cleanly.
-    const cookieOpts = {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-    };
-    res.clearCookie("accessToken", cookieOpts);
-    res.clearCookie("refreshToken", cookieOpts);
+    res.clearCookie("accessToken", authCookieOptions());
+    res.clearCookie("refreshToken", authCookieOptions());
     return next(mapAuthErrorToApiError(error));
   }
 });
@@ -255,13 +254,8 @@ const logout = asyncHandler(async (req, res, next) => {
     });
 
     // Clear cookies — must match the options used when setting them
-    const cookieOpts = {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-    };
-    res.clearCookie("accessToken", cookieOpts);
-    res.clearCookie("refreshToken", cookieOpts);
+    res.clearCookie("accessToken", authCookieOptions());
+    res.clearCookie("refreshToken", authCookieOptions());
 
     successResponse(res, null, "Logged out successfully");
   } catch (error) {
@@ -384,13 +378,8 @@ const changePassword = asyncHandler(async (req, res, next) => {
     });
 
     // Clear cookies to force re-login — must match the options used when setting them
-    const cookieOpts = {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-    };
-    res.clearCookie("accessToken", cookieOpts);
-    res.clearCookie("refreshToken", cookieOpts);
+    res.clearCookie("accessToken", authCookieOptions());
+    res.clearCookie("refreshToken", authCookieOptions());
 
     successResponse(
       res,
@@ -494,19 +483,16 @@ const acceptInvite = asyncHandler(async (req, res, next) => {
     const result = await AuthService.acceptInvite(token, password, userName);
 
     // Set httpOnly cookies
-    res.cookie("accessToken", result.accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 15 * 60 * 1000,
-    });
-
-    res.cookie("refreshToken", result.refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    res.cookie(
+      "accessToken",
+      result.accessToken,
+      authCookieOptions(15 * 60 * 1000),
+    );
+    res.cookie(
+      "refreshToken",
+      result.refreshToken,
+      authCookieOptions(7 * 24 * 60 * 60 * 1000),
+    );
 
     // Log activity
     await ActivityLog.create({
@@ -684,13 +670,8 @@ const resetPassword = asyncHandler(async (req, res, next) => {
     logger.info(`Password reset completed for: ${user.email}`);
 
     // Clear cookies — must match the options used when setting them
-    const cookieOpts = {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-    };
-    res.clearCookie("accessToken", cookieOpts);
-    res.clearCookie("refreshToken", cookieOpts);
+    res.clearCookie("accessToken", authCookieOptions());
+    res.clearCookie("refreshToken", authCookieOptions());
 
     successResponse(
       res,
