@@ -161,6 +161,8 @@ const login = asyncHandler(async (req, res, next) => {
       res,
       {
         user: result.user,
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
       },
       "Login successful",
     );
@@ -196,7 +198,14 @@ const refreshAccessToken = asyncHandler(async (req, res, next) => {
       authCookieOptions(7 * 24 * 60 * 60 * 1000),
     );
 
-    successResponse(res, {}, "Token refreshed successfully");
+    successResponse(
+      res,
+      {
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+      },
+      "Token refreshed successfully",
+    );
   } catch (error) {
     // If refresh fails, clear stale cookies so client can re-auth cleanly.
     res.clearCookie("accessToken", authCookieOptions());
@@ -514,6 +523,8 @@ const acceptInvite = asyncHandler(async (req, res, next) => {
       res,
       {
         user: result.user,
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
       },
       "Account created and logged in successfully",
       201,

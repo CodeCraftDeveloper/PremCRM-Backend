@@ -160,6 +160,8 @@ const bootstrapTenant = asyncHandler(async (req, res, next) => {
         activeUsers: createdTenant.activeUsers,
       },
       user: authResult.user,
+      accessToken: authResult.accessToken,
+      refreshToken: authResult.refreshToken,
     },
     "Tenant bootstrapped successfully",
     201,
