@@ -282,6 +282,50 @@ app.get("/api/health/redis", async (req, res) => {
   }
 });
 
+app.get("/api/health/s3", async (req, res) => {
+  const region = process.env.AWS_REGION;
+  const bucket = process.env.AWS_S3_BUCKET;
+  const hasKey = !!process.env.AWS_ACCESS_KEY_ID;
+  const hasSecret = !!process.env.AWS_SECRET_ACCESS_KEY;
+
+  const configured = !!(region && bucket && hasKey && hasSecret);
+
+  if (!configured) {
+    return res.status(503).json({
+      success: false,
+      service: "s3",
+      status: "misconfigured",
+      missing: [
+        !region && "AWS_REGION",
+        !bucket && "AWS_S3_BUCKET",
+        !hasKey && "AWS_ACCESS_KEY_ID",
+        !hasSecret && "AWS_SECRET_ACCESS_KEY",
+      ].filter(Boolean),
+    });
+  }
+
+  try {
+    const { s3Client } = await import("./src/config/s3.js");
+    const { HeadBucketCommand } = await import("@aws-sdk/client-s3");
+    await s3Client().send(new HeadBucketCommand({ Bucket: bucket }));
+    res.status(200).json({
+      success: true,
+      service: "s3",
+      status: "connected",
+      bucket,
+      region,
+    });
+  } catch (err) {
+    res.status(503).json({
+      success: false,
+      service: "s3",
+      status: "error",
+      error: err.message,
+      code: err.Code || err.name,
+    });
+  }
+});
+
 // =====================
 // API Routes — v1 (canonical) + backward-compat alias
 // =====================

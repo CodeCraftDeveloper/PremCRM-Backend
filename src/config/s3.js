@@ -15,18 +15,38 @@ let _s3Client = null;
 
 const getS3Client = () => {
   if (!_s3Client) {
+    const region = process.env.AWS_REGION;
+    const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
+    const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+
+    if (!region || !accessKeyId || !secretAccessKey) {
+      const missing = [
+        !region && "AWS_REGION",
+        !accessKeyId && "AWS_ACCESS_KEY_ID",
+        !secretAccessKey && "AWS_SECRET_ACCESS_KEY",
+      ].filter(Boolean);
+      throw new Error(
+        `S3 configuration incomplete – missing env vars: ${missing.join(", ")}`,
+      );
+    }
+
     _s3Client = new S3Client({
-      region: process.env.AWS_REGION,
-      credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-      },
+      region,
+      credentials: { accessKeyId, secretAccessKey },
     });
   }
   return _s3Client;
 };
 
-const getBucket = () => process.env.AWS_S3_BUCKET;
+const getBucket = () => {
+  const bucket = process.env.AWS_S3_BUCKET;
+  if (!bucket) {
+    throw new Error(
+      "S3 configuration incomplete – missing env var: AWS_S3_BUCKET",
+    );
+  }
+  return bucket;
+};
 
 /**
  * Generate a unique filename
@@ -80,8 +100,14 @@ const uploadToS3 = async (
       filename,
     };
   } catch (error) {
-    logger.error(`S3 upload error: ${error.message}`);
-    throw new Error("Failed to upload file to S3");
+    logger.error(`S3 upload error: ${error.message}`, {
+      code: error.Code || error.name,
+      bucket: process.env.AWS_S3_BUCKET,
+      region: process.env.AWS_REGION,
+    });
+    throw new Error(
+      `Failed to upload file to S3: ${error.message || "Unknown error"}`,
+    );
   }
 };
 

@@ -290,7 +290,11 @@ const getTenantCompanyLogoPublic = asyncHandler(async (req, res, next) => {
       objectResponse.Body.pipe(res);
       return;
     } catch (error) {
-      console.error("S3 GetObject error:", error);
+      console.error("S3 GetObject error (public logo):", error.message, {
+        s3Key,
+        bucket: process.env.AWS_S3_BUCKET,
+        code: error.Code || error.name,
+      });
       return next(ApiError.notFound("Company logo not found"));
     }
   }
