@@ -22,9 +22,29 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 const SKIP_PREFIXES = ["/api/public/", "/api/v1/public/", "/api/health"];
 
+// Auth endpoints that must work without a CSRF cookie (fresh browser, expired
+// cookie, or token-based proof).  These rely on their own credentials /
+// one-time tokens, so CSRF protection is not required.
+const SKIP_AUTH_PATHS = [
+  "/api/auth/login",
+  "/api/v1/auth/login",
+  "/api/auth/refresh-token",
+  "/api/v1/auth/refresh-token",
+  "/api/auth/register-marketing-manager",
+  "/api/v1/auth/register-marketing-manager",
+  "/api/auth/forgot-password",
+  "/api/v1/auth/forgot-password",
+  "/api/auth/reset-password",
+  "/api/v1/auth/reset-password",
+  "/api/auth/accept-invite",
+  "/api/v1/auth/accept-invite",
+];
+
 function shouldSkip(req) {
   if (SAFE_METHODS.has(req.method)) return true;
-  return SKIP_PREFIXES.some((p) => req.path.startsWith(p));
+  if (SKIP_PREFIXES.some((p) => req.path.startsWith(p))) return true;
+  if (SKIP_AUTH_PATHS.includes(req.path)) return true;
+  return false;
 }
 
 /**
