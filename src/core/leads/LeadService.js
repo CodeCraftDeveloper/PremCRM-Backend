@@ -53,7 +53,7 @@ class LeadService {
 
         // Append remark/note instead of creating duplicate
         const noteAppend = `\n\n[${new Date().toISOString()}] Duplicate submission received:\nEmail: ${leadData.email}\nPhone: ${leadData.phone}`;
-        const updatedOriginal = await Lead.findByIdAndUpdate(
+        await Lead.findByIdAndUpdate(
           originalLead._id,
           {
             $set: {

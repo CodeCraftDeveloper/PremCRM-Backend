@@ -82,7 +82,7 @@ export function sanitizeUpdatePayload(module, payload, role = "user") {
  * Sanitize a create payload — same rules as update, but allows ownerId
  * since it needs to be set on creation.
  */
-export function sanitizeCreatePayload(module, payload, role = "user") {
+export function sanitizeCreatePayload(module, payload, _role = "user") {
   if (!payload || typeof payload !== "object") return {};
 
   const sanitized = { ...payload };

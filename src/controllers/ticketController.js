@@ -6,8 +6,6 @@ import {
 } from "../utils/apiResponse.js";
 import Ticket from "../models/Ticket.js";
 import AuditLog from "../models/AuditLog.js";
-import ActivityLog from "../models/ActivityLog.js";
-import logger from "../utils/logger.js";
 
 /**
  * @desc    Get all tickets for tenant

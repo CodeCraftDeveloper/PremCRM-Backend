@@ -3,7 +3,6 @@ import fs from "fs";
 import {
   ApiError,
   asyncHandler,
-  successResponse,
 } from "../utils/apiResponse.js";
 import Lead from "../models/Lead.js";
 import Client from "../models/Client.js";

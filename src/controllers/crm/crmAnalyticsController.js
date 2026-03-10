@@ -1,5 +1,4 @@
 import {
-  ApiError,
   asyncHandler,
   successResponse,
 } from "../../utils/apiResponse.js";

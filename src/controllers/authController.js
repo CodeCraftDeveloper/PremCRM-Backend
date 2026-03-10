@@ -13,6 +13,13 @@ import logger from "../utils/logger.js";
 
 const PLATFORM_TENANT_SLUG = "__platform__";
 
+const buildAuthUserPayload = (userDoc, tenantDoc = null) => ({
+  ...(typeof userDoc?.toObject === "function" ? userDoc.toObject() : userDoc),
+  tenantSlug: tenantDoc?.slug || null,
+  tenantName: tenantDoc?.name || null,
+  tenantCompany: tenantDoc?.company || {},
+});
+
 const mapAuthErrorToApiError = (error) => {
   if (error instanceof ApiError) {
     return error;
@@ -242,7 +249,11 @@ const getMe = asyncHandler(async (req, res, next) => {
     tenantId: req.user.tenantId,
   }).populate("clientCount");
 
-  successResponse(res, { user });
+  const tenant = await Tenant.findById(req.user.tenantId)
+    .select("slug name company")
+    .lean();
+
+  successResponse(res, { user: buildAuthUserPayload(user, tenant) });
 });
 
 /**
@@ -479,7 +490,7 @@ const registerMarketingManager = asyncHandler(async (req, res, next) => {
     .toLowerCase();
 
   // Resolve tenant from the provided tenantSlug.
-  let tenant = null;
+  let tenant;
 
   if (tenantSlug) {
     const normalizedSlug = String(tenantSlug).trim().toLowerCase();

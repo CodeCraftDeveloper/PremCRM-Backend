@@ -170,7 +170,7 @@ class AssignmentService {
 
       // Evaluate rules in order
       for (const rule of rules) {
-        const { condition, userId, priority } = rule;
+        const { condition, userId } = rule;
 
         // Evaluate condition (simplified - can be expanded)
         let matches = false;

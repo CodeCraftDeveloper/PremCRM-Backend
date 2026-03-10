@@ -12,6 +12,7 @@ import {
   getAllUsers,
   toggleUserActive,
   changeUserRole,
+  changeUserPassword,
   getPlatformActivity,
   // Step 1 — Tenant Operations
   suspendTenant,
@@ -233,6 +234,19 @@ router.put(
     validate,
   ],
   changeUserRole,
+);
+
+router.put(
+  "/users/:id/password",
+  [
+    commonValidations.mongoId("id"),
+    body("newPassword")
+      .trim()
+      .isLength({ min: 8 })
+      .withMessage("newPassword must be at least 8 characters"),
+    validate,
+  ],
+  changeUserPassword,
 );
 
 // ─── Platform Activity ───────────────────────────────────────────────────────

@@ -2,7 +2,6 @@ import {
   ApiError,
   ValidationError,
   AuthenticationError,
-  AuthorizationError,
   NotFoundError,
 } from "../utils/apiResponse.js";
 import logger from "../utils/logger.js";

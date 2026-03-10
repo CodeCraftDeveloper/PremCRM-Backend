@@ -16,7 +16,6 @@ import mongoose from "mongoose";
 import User from "../models/User.js";
 import Account from "../models/crm/Account.js";
 import Contact from "../models/crm/Contact.js";
-import Deal from "../models/crm/Deal.js";
 import Pipeline from "../models/crm/Pipeline.js";
 
 const {
@@ -101,7 +100,6 @@ export async function assertTenantScopedRefs(tenantId, module, payload) {
   const refFields = MODULE_REFS[module];
   if (!refFields) return; // unknown module — skip
 
-  const tenantStr = String(tenantId);
   const checks = [];
 
   for (const fieldKey of refFields) {

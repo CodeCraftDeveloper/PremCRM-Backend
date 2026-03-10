@@ -57,7 +57,7 @@ const activityLogSchema = new mongoose.Schema(
     },
     resourceType: {
       type: String,
-      enum: ["user", "event", "client", "remark", "file", "system"],
+      enum: ["user", "event", "client", "remark", "file", "system", "invite"],
       required: true,
     },
     resourceId: {

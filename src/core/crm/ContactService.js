@@ -1,6 +1,5 @@
 import Contact from "../../models/crm/Contact.js";
 import AuditLog from "../../models/AuditLog.js";
-import logger from "../../utils/logger.js";
 import {
   processCustomData,
   resolveRecordReferences,

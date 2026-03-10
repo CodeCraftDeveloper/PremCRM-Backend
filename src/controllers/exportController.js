@@ -500,7 +500,7 @@ const exportLeads = asyncHandler(async (req, res, next) => {
     Object.entries(groupedByWebsite).forEach(([websiteName, websiteLeads]) => {
       // Sheet name max 31 chars, remove invalid chars
       const sheetName = websiteName
-        .replace(/[\\/*?:\[\]]/g, "")
+        .replace(/[\\/*?:[\]]/g, "")
         .substring(0, 31);
       const ws = workbook.addWorksheet(sheetName);
       ws.columns = columns;

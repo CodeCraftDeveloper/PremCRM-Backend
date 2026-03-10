@@ -24,7 +24,7 @@ const connectDB = async () => {
 
     // Slow query logger — warn on queries taking > 500ms
     const SLOW_QUERY_THRESHOLD_MS = Number(process.env.SLOW_QUERY_MS) || 500;
-    mongoose.set("debug", (collectionName, method, query, doc, options) => {
+    mongoose.set("debug", (_collectionName, _method, _query, _doc, _options) => {
       // mongoose debug callback receives timing only in v7+; we use a plugin instead
     });
 

@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import Tenant from "../models/Tenant.js";
 import User from "../models/User.js";
 import AuthService from "../core/auth/AuthService.js";
+import { uploadToS3 } from "../config/s3.js";
 import {
   ApiError,
   asyncHandler,
@@ -26,6 +27,7 @@ const bootstrapTenant = asyncHandler(async (req, res, next) => {
     adminPassword,
     companyName,
     companyRef,
+    companyLogoUrl,
   } = req.body;
   const tenantSlug = normalizeSlug(slug || tenantName);
 
@@ -51,6 +53,7 @@ const bootstrapTenant = asyncHandler(async (req, res, next) => {
             company: {
               name: companyName || undefined,
               referenceId: companyRef || undefined,
+              logoUrl: companyLogoUrl || undefined,
             },
             plan: "free",
             isActive: true,
@@ -196,4 +199,50 @@ const updateTenantById = asyncHandler(async (req, res, next) => {
   successResponse(res, { tenant }, "Tenant updated successfully");
 });
 
-export { bootstrapTenant, getTenants, getTenantById, updateTenantById };
+const updateTenantCompanyLogo = asyncHandler(async (req, res, next) => {
+  const { id } = req.params;
+  const isSuperAdmin = req.user.role === "superadmin";
+
+  if (!isSuperAdmin && String(req.user.tenantId) !== String(id)) {
+    return next(ApiError.forbidden("You can only update your own tenant"));
+  }
+
+  if (!req.file) {
+    return next(ApiError.badRequest("Logo file is required"));
+  }
+
+  const uploadResult = await uploadToS3(
+    req.file.buffer,
+    req.file.originalname,
+    req.file.mimetype,
+    `tenant-branding/${id}`,
+  );
+
+  const tenant = await Tenant.findByIdAndUpdate(
+    id,
+    {
+      $set: {
+        "company.logoUrl": uploadResult.url,
+      },
+    },
+    { new: true, runValidators: true },
+  ).select("name slug company updatedAt");
+
+  if (!tenant) {
+    return next(ApiError.notFound("Tenant not found"));
+  }
+
+  successResponse(
+    res,
+    { company: tenant.company, logoUrl: tenant.company?.logoUrl || null },
+    "Company logo updated successfully",
+  );
+});
+
+export {
+  bootstrapTenant,
+  getTenants,
+  getTenantById,
+  updateTenantById,
+  updateTenantCompanyLogo,
+};

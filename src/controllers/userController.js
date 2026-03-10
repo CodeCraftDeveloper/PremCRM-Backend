@@ -11,16 +11,8 @@ import {
 import { deleteCachePattern } from "../config/redis.js";
 import logger from "../utils/logger.js";
 
-const PLATFORM_TENANT_SLUG = "__platform__";
-
 const isTenantActiveUser = (user) =>
   Boolean(user?.isActive) && user?.approvalStatus !== "rejected";
-
-const isPlatformOwnerUser = async (user) => {
-  if (!user || user.role !== "superadmin") return false;
-  const tenant = await Tenant.findById(user.tenantId).select("slug").lean();
-  return tenant?.slug === PLATFORM_TENANT_SLUG;
-};
 
 const adjustTenantActiveUsers = async (tenantId, delta = 0) => {
   if (!tenantId || !delta) return;

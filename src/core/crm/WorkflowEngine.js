@@ -5,7 +5,6 @@ import Contact from "../../models/crm/Contact.js";
 import Account from "../../models/crm/Account.js";
 import Deal from "../../models/crm/Deal.js";
 import Lead from "../../models/Lead.js";
-import AuditLog from "../../models/AuditLog.js";
 import logger from "../../utils/logger.js";
 import { assertTenantScopedRefs } from "../../utils/tenantRefGuard.js";
 

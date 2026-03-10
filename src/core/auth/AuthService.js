@@ -11,6 +11,7 @@ import {
 } from "../../utils/jwt.js";
 import redis from "../../config/redis.js";
 import logger from "../../utils/logger.js";
+import { sendPasswordResetNotification } from "../../utils/passwordResetNotifier.js";
 
 const HASH_ALGORITHM = "sha256";
 const PLATFORM_TENANT_SLUG = "__platform__";
@@ -143,7 +144,7 @@ class AuthService {
       const userTenant =
         tenant ||
         (await Tenant.findById(user.tenantId)
-          .select("_id isActive slug name")
+          .select("_id isActive slug name company")
           .lean());
       if (!userTenant || !userTenant.isActive) {
         throw new Error("Tenant is inactive");
@@ -187,6 +188,7 @@ class AuthService {
           tenantId: user.tenantId,
           tenantSlug: userTenant.slug || null,
           tenantName: userTenant.name || null,
+          tenantCompany: userTenant.company || {},
         },
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
@@ -337,8 +339,18 @@ class AuthService {
         `Password reset initiated for ${email}, token hash: ${resetTokenHash.substring(0, 8)}..., expires: ${user.passwordResetExpires.toISOString()}`,
       );
 
-      // TODO: Send email with resetToken (separate channel)
-      // sendPasswordResetEmail(email, resetToken);
+      try {
+        await sendPasswordResetNotification({
+          email,
+          resetToken,
+          tenantId: user.tenantId,
+          userId: user._id,
+        });
+      } catch (notifyError) {
+        logger.error(
+          `Password reset notification failed for ${email}: ${notifyError.message}`,
+        );
+      }
 
       // Do NOT return the raw token — it must be delivered via email only
       return { message: "Password reset initiated" };
@@ -488,7 +500,7 @@ class AuthService {
       }
 
       const tenant = await Tenant.findById(invite.tenantId)
-        .select("_id isActive settings.maxUsers activeUsers slug name")
+        .select("_id isActive settings.maxUsers activeUsers slug name company")
         .lean();
 
       if (!tenant || !tenant.isActive) {
@@ -552,6 +564,7 @@ class AuthService {
           tenantId: user.tenantId,
           tenantSlug: tenant.slug || null,
           tenantName: tenant.name || null,
+          tenantCompany: tenant.company || {},
         },
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,

@@ -5,10 +5,12 @@ import {
   getTenants,
   getTenantById,
   updateTenantById,
+  updateTenantCompanyLogo,
 } from "../controllers/tenantController.js";
 import { protect, adminOnly } from "../middlewares/auth.js";
 import { validate, commonValidations } from "../utils/validators.js";
 import { bootstrapLimiter } from "../middlewares/rateLimiter.js";
+import { uploadCompanyLogo, handleUploadError } from "../middlewares/upload.js";
 
 const router = express.Router();
 
@@ -47,6 +49,13 @@ router.post(
       .trim()
       .isLength({ max: 100 })
       .withMessage("companyRef cannot exceed 100 characters"),
+    body("companyLogoUrl")
+      .optional({ checkFalsy: true })
+      .trim()
+      .isLength({ max: 500 })
+      .withMessage("companyLogoUrl cannot exceed 500 characters")
+      .isURL()
+      .withMessage("companyLogoUrl must be a valid URL"),
     validate,
   ],
   bootstrapTenant,
@@ -91,9 +100,24 @@ router.put(
       .trim()
       .isLength({ max: 100 })
       .withMessage("company.referenceId cannot exceed 100 characters"),
+    body("company.logoUrl")
+      .optional({ checkFalsy: true })
+      .trim()
+      .isLength({ max: 500 })
+      .withMessage("company.logoUrl cannot exceed 500 characters")
+      .isURL()
+      .withMessage("company.logoUrl must be a valid URL"),
     validate,
   ],
   updateTenantById,
+);
+
+router.post(
+  "/:id/company-logo",
+  [commonValidations.mongoId("id"), validate],
+  uploadCompanyLogo,
+  handleUploadError,
+  updateTenantCompanyLogo,
 );
 
 export default router;

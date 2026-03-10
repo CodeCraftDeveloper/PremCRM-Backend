@@ -24,6 +24,11 @@ const tenantSchema = new mongoose.Schema(
         trim: true,
         maxlength: [200, "Company name cannot exceed 200 characters"],
       },
+      logoUrl: {
+        type: String,
+        trim: true,
+        maxlength: [500, "Company logo URL cannot exceed 500 characters"],
+      },
       referenceId: {
         type: String,
         trim: true,

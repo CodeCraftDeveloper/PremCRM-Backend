@@ -25,7 +25,6 @@ class DuplicateDetectionService {
     settings = {},
   ) {
     try {
-      const query = { tenantId };
       const filters = [];
 
       // Check email if enabled
@@ -71,7 +70,7 @@ class DuplicateDetectionService {
     duplicateLeadId,
     originalLeadId,
     tenantId,
-    metadata = {},
+    _metadata = {},
   ) {
     if (!tenantId) throw new Error("tenantId is required");
     try {

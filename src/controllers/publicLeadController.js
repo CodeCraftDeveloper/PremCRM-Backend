@@ -90,7 +90,7 @@ const buildAttachmentRecords = async (leadId, files = []) => {
 const submitPublicLead = asyncHandler(async (req, res, next) => {
   try {
     // Validate required fields
-    const { firstName, email, phone, message } = req.body;
+    const { firstName, email } = req.body;
 
     if (!firstName || !email) {
       return next(ApiError.badRequest("First name and email are required"));

@@ -1,6 +1,5 @@
 import Blueprint from "../../models/crm/Blueprint.js";
 import AuditLog from "../../models/AuditLog.js";
-import { ApiError } from "../../utils/apiResponse.js";
 import { MAX_LIMIT } from "../../utils/pagination.js";
 
 /**

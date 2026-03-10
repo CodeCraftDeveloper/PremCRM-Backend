@@ -585,6 +585,51 @@ const changeUserRole = asyncHandler(async (req, res, next) => {
   successResponse(res, { user }, `Role updated to ${role}`);
 });
 
+/**
+ * @desc    Set user password from superadmin panel
+ * @route   PUT /api/superadmin/users/:id/password
+ * @access  Private (superadmin)
+ */
+const changeUserPassword = asyncHandler(async (req, res, next) => {
+  const { newPassword } = req.body;
+
+  const user = await User.findById(req.params.id).select("+password");
+  if (!user) return next(ApiError.notFound("User not found"));
+
+  if (await isProtectedPlatformOwner(user)) {
+    return next(
+      ApiError.forbidden("Platform Owner password cannot be changed here"),
+    );
+  }
+
+  user.password = newPassword;
+  user.refreshToken = null;
+  await user.save();
+
+  await UserSession.updateMany(
+    { user: user._id, isActive: true },
+    { isActive: false, logoutTime: new Date() },
+  );
+
+  AuditLog.record({
+    tenantId: user.tenantId,
+    userId: req.user._id,
+    action: "user.password_reset_by_superadmin",
+    entityType: "user",
+    entityId: user._id,
+    description: `SuperAdmin reset password for ${user.email}`,
+    requestId: req.requestId,
+    ipAddress: req.ip,
+    userAgent: req.get("User-Agent"),
+  });
+
+  successResponse(
+    res,
+    { userId: user._id },
+    "User password updated successfully",
+  );
+});
+
 // ─── Platform Activity ───────────────────────────────────────────────────────
 
 /**
@@ -733,7 +778,6 @@ const getTenantHealth = asyncHandler(async (req, res, next) => {
   }
 
   const now = new Date();
-  const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
   const [
@@ -1243,6 +1287,7 @@ export {
   getAllUsers,
   toggleUserActive,
   changeUserRole,
+  changeUserPassword,
   getPlatformActivity,
   // New Step 1
   suspendTenant,

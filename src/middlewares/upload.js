@@ -86,20 +86,6 @@ const createFileFilter = (allowedTypes) => (req, file, cb) => {
 const memoryStorage = multer.memoryStorage();
 
 /**
- * Local disk storage (for development/fallback)
- */
-const diskStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "public/uploads");
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    const ext = path.extname(file.originalname);
-    cb(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
-  },
-});
-
-/**
  * Upload middleware for visiting cards (images only)
  */
 const uploadVisitingCard = multer({
@@ -170,6 +156,20 @@ const uploadAvatar = multer({
 }).single("avatar");
 
 /**
+ * Upload middleware for company logo
+ */
+const uploadCompanyLogo = multer({
+  storage: memoryStorage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB for company logos
+    files: 1,
+    fields: MAX_FORM_FIELDS,
+    fieldSize: MAX_FORM_FIELD_SIZE,
+  },
+  fileFilter: createFileFilter(ALLOWED_FILE_TYPES.image),
+}).single("logo");
+
+/**
  * Handle multer errors
  */
 const handleUploadError = (err, req, res, next) => {
@@ -202,6 +202,7 @@ export {
   uploadMultipleFiles,
   uploadLeadAttachments,
   uploadAvatar,
+  uploadCompanyLogo,
   handleUploadError,
   ALLOWED_FILE_TYPES,
   MAX_FILE_SIZE,

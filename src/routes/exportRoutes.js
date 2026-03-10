@@ -8,7 +8,7 @@ import {
   exportLeads,
   exportLeadsSummary,
 } from "../controllers/exportController.js";
-import { protect, adminOnly, authorize } from "../middlewares/auth.js";
+import { protect, adminOnly } from "../middlewares/auth.js";
 import { exportLimiter } from "../middlewares/rateLimiter.js";
 import { requireFeature } from "../middlewares/featureFlag.js";
 import { validate } from "../utils/validators.js";

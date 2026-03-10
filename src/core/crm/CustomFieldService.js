@@ -10,7 +10,6 @@ import {
   startTimer,
   buildSafeCustomFilter,
   checkReferenceDepth,
-  MAX_FILTER_CONDITIONS,
 } from "./customFieldPerf.js";
 import { enforcePagination } from "../../utils/pagination.js";
 

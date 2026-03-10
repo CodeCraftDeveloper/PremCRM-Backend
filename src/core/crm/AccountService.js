@@ -10,7 +10,7 @@ import {
 } from "../../utils/sanitizePayload.js";
 import { assertTenantScopedRefs } from "../../utils/tenantRefGuard.js";
 import { enforcePagination } from "../../utils/pagination.js";
-import { buildSafeSearch, escapeRegex, buildSafeSort } from "../../utils/safeQueryBuilder.js";
+import { buildSafeSearch, buildSafeSort } from "../../utils/safeQueryBuilder.js";
 
 const ACCOUNT_SORT_FIELDS = [
   "name", "email", "type", "industry", "createdAt", "updatedAt",

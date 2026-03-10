@@ -27,7 +27,6 @@ const isS3Configured = () =>
     process.env.AWS_S3_BUCKET,
   );
 
-const LOCAL_UPLOADS_DIR = path.resolve(process.cwd(), "private", "uploads");
 const LOCAL_KEY_PREFIX = "local:";
 
 const localKeyToFilePath = (key) => {
