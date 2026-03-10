@@ -84,7 +84,10 @@ const startServer = async () => {
 
     // Start Express server with Socket.IO
     const httpServer = http.createServer(app);
-    initializeSocketServer(httpServer);
+    const socketIO = initializeSocketServer(httpServer);
+
+    // Make socket.io instance available to the app
+    app.set("socketio", socketIO);
 
     const server = httpServer.listen(PORT, () => {
       logger.info(

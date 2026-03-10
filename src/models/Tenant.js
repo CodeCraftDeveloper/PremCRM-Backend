@@ -29,6 +29,15 @@ const tenantSchema = new mongoose.Schema(
         trim: true,
         maxlength: [500, "Company logo URL cannot exceed 500 characters"],
       },
+      logoS3Key: {
+        type: String,
+        trim: true,
+        maxlength: [500, "Company logo storage key cannot exceed 500 characters"],
+      },
+      logoUpdatedAt: {
+        type: Date,
+        default: null,
+      },
       referenceId: {
         type: String,
         trim: true,

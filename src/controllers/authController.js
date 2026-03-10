@@ -13,6 +13,37 @@ import logger from "../utils/logger.js";
 
 const PLATFORM_TENANT_SLUG = "__platform__";
 
+/**
+ * Extract S3 key from a direct S3 URL if it matches our bucket.
+ */
+const extractS3KeyFromLogoUrl = (url) => {
+  if (!url) return null;
+  const bucket = process.env.AWS_S3_BUCKET;
+  if (!bucket) return null;
+  const pattern = new RegExp(
+    `^https?://${bucket}\\.s3[.-][^/]+\\.amazonaws\\.com/(.+?)(?:\\?.*)?$`,
+  );
+  const match = url.match(pattern);
+  return match ? match[1] : null;
+};
+
+const resolveCompanyForResponse = async (company, tenantId) => {
+  const resolved = { ...(company || {}) };
+  // If logoS3Key is missing but logoUrl is an S3 URL, extract and backfill
+  if (!resolved.logoS3Key && resolved.logoUrl) {
+    const extracted = extractS3KeyFromLogoUrl(resolved.logoUrl);
+    if (extracted) {
+      resolved.logoS3Key = extracted;
+      // Backfill in DB (fire-and-forget)
+      Tenant.updateOne(
+        { _id: tenantId },
+        { $set: { "company.logoS3Key": extracted } },
+      ).catch(() => {});
+    }
+  }
+  return resolved;
+};
+
 const buildAuthUserPayload = (userDoc, tenantDoc = null) => ({
   ...(typeof userDoc?.toObject === "function" ? userDoc.toObject() : userDoc),
   tenantSlug: tenantDoc?.slug || null,
@@ -253,7 +284,45 @@ const getMe = asyncHandler(async (req, res, next) => {
     .select("slug name company")
     .lean();
 
-  successResponse(res, { user: buildAuthUserPayload(user, tenant) });
+  const company = await resolveCompanyForResponse(
+    tenant?.company,
+    req.user.tenantId,
+  );
+
+  const tenantWithResolvedCompany = tenant ? { ...tenant, company } : tenant;
+
+  successResponse(res, {
+    user: buildAuthUserPayload(user, tenantWithResolvedCompany),
+  });
+});
+
+/**
+ * @desc    Refresh current user session data (useful after logo updates)
+ * @route   POST /api/auth/refresh-session
+ * @access  Private
+ */
+const refreshSession = asyncHandler(async (req, res, next) => {
+  const user = await User.findOne({
+    _id: req.user._id,
+    tenantId: req.user.tenantId,
+  }).populate("clientCount");
+
+  const tenant = await Tenant.findById(req.user.tenantId)
+    .select("slug name company")
+    .lean();
+
+  const company = await resolveCompanyForResponse(
+    tenant?.company,
+    req.user.tenantId,
+  );
+
+  const tenantWithResolvedCompany = tenant ? { ...tenant, company } : tenant;
+
+  successResponse(
+    res,
+    { user: buildAuthUserPayload(user, tenantWithResolvedCompany) },
+    "Session refreshed successfully",
+  );
 });
 
 /**
@@ -640,6 +709,7 @@ export {
   refreshAccessToken,
   logout,
   getMe,
+  refreshSession,
   updateProfile,
   changePassword,
   forgotPassword,

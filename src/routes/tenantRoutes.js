@@ -4,6 +4,8 @@ import {
   bootstrapTenant,
   getTenants,
   getTenantById,
+  getTenantCompanyLogo,
+  getTenantCompanyLogoPublic,
   updateTenantById,
   updateTenantCompanyLogo,
 } from "../controllers/tenantController.js";
@@ -59,6 +61,19 @@ router.post(
     validate,
   ],
   bootstrapTenant,
+);
+
+router.get(
+  "/:id/company-logo/public",
+  [commonValidations.mongoId("id"), validate],
+  getTenantCompanyLogoPublic,
+);
+
+router.get(
+  "/:id/company-logo",
+  protect,
+  [commonValidations.mongoId("id"), validate],
+  getTenantCompanyLogo,
 );
 
 router.use(protect, adminOnly);

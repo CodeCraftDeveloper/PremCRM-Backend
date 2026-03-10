@@ -1,8 +1,9 @@
 import mongoose from "mongoose";
+import { GetObjectCommand } from "@aws-sdk/client-s3";
 import Tenant from "../models/Tenant.js";
 import User from "../models/User.js";
 import AuthService from "../core/auth/AuthService.js";
-import { uploadToS3 } from "../config/s3.js";
+import { getSignedFileUrl, s3Client, uploadToS3 } from "../config/s3.js";
 import {
   ApiError,
   asyncHandler,
@@ -10,6 +11,40 @@ import {
 } from "../utils/apiResponse.js";
 
 const PLATFORM_TENANT_SLUG = "__platform__";
+
+/**
+ * Extract S3 key from a direct S3 URL if it matches our bucket.
+ * e.g. https://bucket.s3.region.amazonaws.com/tenant-branding/xyz/file.jpg → tenant-branding/xyz/file.jpg
+ */
+const extractS3KeyFromUrl = (url) => {
+  if (!url) return null;
+  const bucket = process.env.AWS_S3_BUCKET;
+  if (!bucket) return null;
+  // Match: https://{bucket}.s3.{region}.amazonaws.com/{key}
+  const pattern = new RegExp(
+    `^https?://${bucket}\\.s3[.-][^/]+\\.amazonaws\\.com/(.+?)(?:\\?.*)?$`,
+  );
+  const match = url.match(pattern);
+  return match ? match[1] : null;
+};
+
+/**
+ * Resolve the S3 key for a tenant's logo. Handles:
+ * 1. logoS3Key already set → use it
+ * 2. logoUrl is a direct S3 URL for our bucket → extract key, backfill DB
+ */
+const resolveLogoS3Key = async (company, tenantId) => {
+  if (company.logoS3Key) return company.logoS3Key;
+  const extracted = extractS3KeyFromUrl(company.logoUrl);
+  if (extracted && tenantId) {
+    // Backfill logoS3Key in DB so future requests are fast
+    Tenant.updateOne(
+      { _id: tenantId },
+      { $set: { "company.logoS3Key": extracted } },
+    ).catch(() => {}); // fire-and-forget
+  }
+  return extracted;
+};
 
 const normalizeSlug = (value = "") =>
   String(value)
@@ -54,6 +89,7 @@ const bootstrapTenant = asyncHandler(async (req, res, next) => {
               name: companyName || undefined,
               referenceId: companyRef || undefined,
               logoUrl: companyLogoUrl || undefined,
+              logoUpdatedAt: companyLogoUrl ? new Date() : undefined,
             },
             plan: "free",
             isActive: true,
@@ -69,7 +105,9 @@ const bootstrapTenant = asyncHandler(async (req, res, next) => {
           {
             tenantId: createdTenant._id,
             name: adminName,
-            email: String(adminEmail || "").trim().toLowerCase(),
+            email: String(adminEmail || "")
+              .trim()
+              .toLowerCase(),
             password: adminPassword,
             role: "admin",
             isActive: true,
@@ -81,7 +119,9 @@ const bootstrapTenant = asyncHandler(async (req, res, next) => {
     });
   } catch (error) {
     await dbSession.endSession();
-    return next(ApiError.badRequest(error.message || "Failed to bootstrap tenant"));
+    return next(
+      ApiError.badRequest(error.message || "Failed to bootstrap tenant"),
+    );
   }
 
   await dbSession.endSession();
@@ -162,6 +202,103 @@ const getTenantById = asyncHandler(async (req, res, next) => {
   successResponse(res, { tenant });
 });
 
+const getTenantCompanyLogo = asyncHandler(async (req, res, next) => {
+  const { id } = req.params;
+  const isSuperAdmin = req.user.role === "superadmin";
+
+  if (!isSuperAdmin && String(req.user.tenantId) !== String(id)) {
+    return next(ApiError.forbidden("You can only access your own tenant"));
+  }
+
+  const tenant = await Tenant.findById(id).select("company").lean();
+  if (!tenant) {
+    return next(ApiError.notFound("Tenant not found"));
+  }
+
+  const company = tenant.company || {};
+  const s3Key = await resolveLogoS3Key(company, id);
+
+  if (s3Key) {
+    try {
+      const command = new GetObjectCommand({
+        Bucket: process.env.AWS_S3_BUCKET,
+        Key: s3Key,
+      });
+
+      const objectResponse = await s3Client().send(command);
+      if (!objectResponse?.Body) {
+        return next(ApiError.notFound("Company logo not found"));
+      }
+
+      res.setHeader("Cache-Control", "private, max-age=300");
+      res.setHeader(
+        "Content-Type",
+        objectResponse.ContentType || "application/octet-stream",
+      );
+      res.setHeader("X-Content-Type-Options", "nosniff");
+
+      objectResponse.Body.pipe(res);
+      return;
+    } catch (error) {
+      console.error("S3 GetObject error:", error);
+      return next(ApiError.notFound("Company logo not found"));
+    }
+  }
+
+  // Only redirect for truly external (non-S3) URLs
+  if (company.logoUrl && !extractS3KeyFromUrl(company.logoUrl)) {
+    return res.redirect(company.logoUrl);
+  }
+
+  return next(ApiError.notFound("Company logo not found"));
+});
+
+const getTenantCompanyLogoPublic = asyncHandler(async (req, res, next) => {
+  const { id } = req.params;
+
+  const tenant = await Tenant.findById(id).select("company").lean();
+  if (!tenant) {
+    return next(ApiError.notFound("Tenant not found"));
+  }
+
+  const company = tenant.company || {};
+  const s3Key = await resolveLogoS3Key(company, id);
+
+  if (s3Key) {
+    try {
+      const command = new GetObjectCommand({
+        Bucket: process.env.AWS_S3_BUCKET,
+        Key: s3Key,
+      });
+
+      const objectResponse = await s3Client().send(command);
+      if (!objectResponse?.Body) {
+        return next(ApiError.notFound("Company logo not found"));
+      }
+
+      res.setHeader("Cache-Control", "public, max-age=300");
+      res.setHeader(
+        "Content-Type",
+        objectResponse.ContentType || "application/octet-stream",
+      );
+      res.setHeader("X-Content-Type-Options", "nosniff");
+
+      objectResponse.Body.pipe(res);
+      return;
+    } catch (error) {
+      console.error("S3 GetObject error:", error);
+      return next(ApiError.notFound("Company logo not found"));
+    }
+  }
+
+  // Only redirect for truly external (non-S3) URLs
+  if (company.logoUrl && !extractS3KeyFromUrl(company.logoUrl)) {
+    return res.redirect(company.logoUrl);
+  }
+
+  return next(ApiError.notFound("Company logo not found"));
+});
+
 const updateTenantById = asyncHandler(async (req, res, next) => {
   const { id } = req.params;
   const isSuperAdmin = req.user.role === "superadmin";
@@ -181,6 +318,26 @@ const updateTenantById = asyncHandler(async (req, res, next) => {
     }
   }
 
+  if (update.company) {
+    const existingTenant = await Tenant.findById(id).select("company").lean();
+    if (!existingTenant) {
+      return next(ApiError.notFound("Tenant not found"));
+    }
+
+    update.company = {
+      ...(existingTenant.company || {}),
+      ...(update.company || {}),
+    };
+
+    if (Object.prototype.hasOwnProperty.call(update.company, "logoUrl")) {
+      update.company.logoUpdatedAt = new Date();
+      // Manual URL update should not keep stale S3 key.
+      if (update.company.logoUrl) {
+        update.company.logoS3Key = undefined;
+      }
+    }
+  }
+
   if (!Object.keys(update).length) {
     return next(ApiError.badRequest("No valid tenant fields provided"));
   }
@@ -194,6 +351,14 @@ const updateTenantById = asyncHandler(async (req, res, next) => {
 
   if (!tenant) {
     return next(ApiError.notFound("Tenant not found"));
+  }
+
+  // Notify connected clients about company info update via socket if available
+  if (update.company && req.app?.get("socketio")) {
+    req.app.get("socketio").to(`tenant_${id}`).emit("tenantCompanyUpdated", {
+      tenantId: id,
+      company: tenant.company,
+    });
   }
 
   successResponse(res, { tenant }, "Tenant updated successfully");
@@ -222,7 +387,11 @@ const updateTenantCompanyLogo = asyncHandler(async (req, res, next) => {
     id,
     {
       $set: {
-        "company.logoUrl": uploadResult.url,
+        "company.logoS3Key": uploadResult.key,
+        "company.logoUpdatedAt": new Date(),
+      },
+      $unset: {
+        "company.logoUrl": 1, // Clear external URL since we're using S3
       },
     },
     { new: true, runValidators: true },
@@ -232,17 +401,31 @@ const updateTenantCompanyLogo = asyncHandler(async (req, res, next) => {
     return next(ApiError.notFound("Tenant not found"));
   }
 
+  // For S3-hosted logos, we don't return direct URLs
+  // Frontend should use the API endpoint instead
+  const logoUrl = null; // Always use API endpoint for S3 logos
+
   successResponse(
     res,
-    { company: tenant.company, logoUrl: tenant.company?.logoUrl || null },
+    { company: tenant.company, logoUrl },
     "Company logo updated successfully",
   );
+
+  // Notify connected clients about logo update via socket if available
+  if (req.app?.get("socketio")) {
+    req.app.get("socketio").to(`tenant_${id}`).emit("tenantLogoUpdated", {
+      tenantId: id,
+      logoUpdatedAt: tenant.company.logoUpdatedAt,
+    });
+  }
 });
 
 export {
   bootstrapTenant,
   getTenants,
   getTenantById,
+  getTenantCompanyLogo,
+  getTenantCompanyLogoPublic,
   updateTenantById,
   updateTenantCompanyLogo,
 };

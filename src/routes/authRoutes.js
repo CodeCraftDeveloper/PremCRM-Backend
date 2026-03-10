@@ -5,6 +5,7 @@ import {
   refreshAccessToken,
   logout,
   getMe,
+  refreshSession,
   updateProfile,
   changePassword,
   forgotPassword,
@@ -113,6 +114,13 @@ router.post("/logout", protect, logout);
  * @access  Private
  */
 router.get("/me", protect, getMe);
+
+/**
+ * @route   POST /api/auth/refresh-session
+ * @desc    Refresh current user session data
+ * @access  Private
+ */
+router.post("/refresh-session", protect, refreshSession);
 
 /**
  * @route   PUT /api/auth/me

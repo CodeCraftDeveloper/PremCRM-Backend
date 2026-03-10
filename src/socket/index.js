@@ -195,6 +195,7 @@ export const initializeSocketServer = (httpServer) => {
     const tenantId = String(user.tenantId);
     const userRoom = `user:${userId}`;
     const adminRoom = `admins:${tenantId}`;
+    const tenantRoom = `tenant_${tenantId}`;
     const clientSessionId =
       getClientSessionIdFromSocket(socket) || `socket:${socket.id}`;
     const sessionRoom = `session:${userId}:${clientSessionId}`;
@@ -202,6 +203,7 @@ export const initializeSocketServer = (httpServer) => {
 
     socket.join(userRoom);
     socket.join(sessionRoom);
+    socket.join(tenantRoom); // Join tenant room for logo updates
     if (user.role === "admin") {
       socket.join(adminRoom);
       const statuses = await getAllMarketingStatuses(user.tenantId);
@@ -239,6 +241,21 @@ export const initializeSocketServer = (httpServer) => {
       const status = await buildMarketingUserStatus(user);
       io.to(adminRoom).emit("marketing:status_changed", status);
     }
+
+    // Handle explicit tenant room joining for logo updates
+    socket.on("joinTenantRoom", (requestedTenantId) => {
+      // Verify user has access to this tenant
+      if (String(user.tenantId) === String(requestedTenantId)) {
+        const requestedTenantRoom = `tenant_${requestedTenantId}`;
+        socket.join(requestedTenantRoom);
+        socket.emit("joinedTenantRoom", requestedTenantId);
+        logger.info(
+          `User ${userId} joined tenant room: ${requestedTenantRoom}`,
+        );
+      } else {
+        socket.emit("error", "Access denied to tenant room");
+      }
+    });
 
     socket.on("disconnect", async () => {
       const timeoutId = setTimeout(async () => {

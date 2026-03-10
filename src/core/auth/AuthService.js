@@ -21,6 +21,31 @@ const PLATFORM_TENANT_SLUG = "__platform__";
  * Secure authentication with HttpOnly cookies and invite-based registration
  */
 class AuthService {
+  static async resolveTenantCompanyBranding(company = {}, tenantId = null) {
+    const resolved = { ...(company || {}) };
+    // If logoS3Key is missing but logoUrl points to our S3 bucket, extract the key
+    if (!resolved.logoS3Key && resolved.logoUrl) {
+      const bucket = process.env.AWS_S3_BUCKET;
+      if (bucket) {
+        const pattern = new RegExp(
+          `^https?://${bucket}\\.s3[.-][^/]+\\.amazonaws\\.com/(.+?)(?:\\?.*)?$`,
+        );
+        const match = resolved.logoUrl.match(pattern);
+        if (match) {
+          resolved.logoS3Key = match[1];
+          // Backfill in DB (fire-and-forget)
+          if (tenantId) {
+            Tenant.updateOne(
+              { _id: tenantId },
+              { $set: { "company.logoS3Key": match[1] } },
+            ).catch(() => {});
+          }
+        }
+      }
+    }
+    return resolved;
+  }
+
   /**
    * Ensure a legacy user has tenantId before creating session/token context.
    * Auto-fixes only when there is exactly one active tenant in the system.
@@ -178,6 +203,10 @@ class AuthService {
       }
 
       logger.info(`User logged in: ${user.email}`);
+      const tenantCompany = await this.resolveTenantCompanyBranding(
+        userTenant.company || {},
+        user.tenantId,
+      );
 
       return {
         user: {
@@ -188,7 +217,7 @@ class AuthService {
           tenantId: user.tenantId,
           tenantSlug: userTenant.slug || null,
           tenantName: userTenant.name || null,
-          tenantCompany: userTenant.company || {},
+          tenantCompany,
         },
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
@@ -554,6 +583,10 @@ class AuthService {
       await user.save({ validateBeforeSave: false });
 
       logger.info(`Invite accepted by ${user.email}`);
+      const tenantCompany = await this.resolveTenantCompanyBranding(
+        tenant.company || {},
+        user.tenantId,
+      );
 
       return {
         user: {
@@ -564,7 +597,7 @@ class AuthService {
           tenantId: user.tenantId,
           tenantSlug: tenant.slug || null,
           tenantName: tenant.name || null,
-          tenantCompany: tenant.company || {},
+          tenantCompany,
         },
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
