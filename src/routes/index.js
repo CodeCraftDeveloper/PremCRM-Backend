@@ -14,3 +14,5 @@ export { default as tenantRoutes } from "./tenantRoutes.js";
 export { default as superAdminRoutes } from "./superAdminRoutes.js";
 export { default as ticketRoutes } from "./ticketRoutes.js";
 export { default as fileRoutes } from "./fileRoutes.js";
+export { default as publicEventRoutes } from "./publicEventRoutes.js";
+export { default as eventRegistrationRoutes } from "./eventRegistrationRoutes.js";

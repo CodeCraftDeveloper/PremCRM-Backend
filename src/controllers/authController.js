@@ -12,6 +12,22 @@ import SessionService from "../core/auth/SessionService.js";
 import logger from "../utils/logger.js";
 
 const PLATFORM_TENANT_SLUG = "__platform__";
+const normalizeBaseUrl = (value = "") => String(value).replace(/\/+$/, "");
+
+const buildInviteAcceptUrl = (inviteToken) => {
+  const encodedToken = encodeURIComponent(inviteToken);
+  const template = process.env.INVITE_ACCEPT_URL_TEMPLATE;
+
+  if (template && template.includes("{token}")) {
+    return template.replace("{token}", encodedToken);
+  }
+
+  if (process.env.FRONTEND_URL) {
+    return `${normalizeBaseUrl(process.env.FRONTEND_URL)}/accept-invite/${encodedToken}`;
+  }
+
+  return null;
+};
 
 // Shared cookie options for auth tokens.
 // Cross-origin deployments (frontend ≠ backend domain) need SameSite=None.
@@ -334,15 +350,38 @@ const refreshSession = asyncHandler(async (req, res, next) => {
  * @access  Private
  */
 const updateProfile = asyncHandler(async (req, res, next) => {
-  const { name, phone, avatar } = req.body;
+  const { name, phone, avatar, notificationPreferences } = req.body;
+
+  const update = {};
+  if (name !== undefined) update.name = name;
+  if (phone !== undefined) update.phone = phone;
+  if (avatar !== undefined) update.avatar = avatar;
+  if (notificationPreferences !== undefined) {
+    update.notificationPreferences = notificationPreferences;
+  }
 
   const user = await User.findOneAndUpdate(
     { _id: req.user._id, tenantId: req.user.tenantId },
-    { name, phone, avatar },
+    update,
     { new: true, runValidators: true },
   );
 
-  successResponse(res, { user }, "Profile updated successfully");
+  const tenant = await Tenant.findById(req.user.tenantId)
+    .select("slug name company")
+    .lean();
+
+  const company = await resolveCompanyForResponse(
+    tenant?.company,
+    req.user.tenantId,
+  );
+
+  const tenantWithResolvedCompany = tenant ? { ...tenant, company } : tenant;
+
+  successResponse(
+    res,
+    { user: buildAuthUserPayload(user, tenantWithResolvedCompany) },
+    "Profile updated successfully",
+  );
 });
 
 /**
@@ -459,6 +498,8 @@ const createInvite = asyncHandler(async (req, res, next) => {
 
     logger.info(`Invite created by ${req.user.email} for ${email} as ${role}`);
 
+    const inviteUrl = buildInviteAcceptUrl(inviteResult.token);
+
     successResponse(
       res,
       {
@@ -469,6 +510,7 @@ const createInvite = asyncHandler(async (req, res, next) => {
           status: "pending",
         },
         inviteToken: inviteResult.token,
+        inviteUrl,
       },
       "Invite created successfully",
       201,

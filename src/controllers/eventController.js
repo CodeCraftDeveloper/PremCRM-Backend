@@ -8,14 +8,60 @@ import {
   successResponse,
   paginatedResponse,
 } from "../utils/apiResponse.js";
-import {
-  getCache,
-  setCache,
-  deleteCachePattern,
-} from "../config/redis.js";
+import { getCache, setCache, deleteCachePattern } from "../config/redis.js";
 import logger from "../utils/logger.js";
 
 const CACHE_TTL = 3600; // 1 hour
+
+const normalizeEventRegistrationFields = (fields = []) => {
+  if (!Array.isArray(fields)) return [];
+
+  return fields
+    .map((field, index) => ({
+      key: String(field?.key || "")
+        .trim()
+        .replace(/\s+/g, "_")
+        .replace(/[^a-zA-Z0-9_-]/g, "")
+        .toLowerCase(),
+      label: String(field?.label || "").trim(),
+      type: field?.type || "text",
+      required: Boolean(field?.required),
+      placeholder: String(field?.placeholder || "").trim(),
+      helpText: String(field?.helpText || "").trim(),
+      options: Array.isArray(field?.options)
+        ? field.options.map((option) => String(option).trim()).filter(Boolean)
+        : [],
+      maxLength:
+        Number.isFinite(Number(field?.maxLength)) && Number(field.maxLength) > 0
+          ? Number(field.maxLength)
+          : null,
+      sortOrder: Number.isFinite(Number(field?.sortOrder))
+        ? Number(field.sortOrder)
+        : index,
+    }))
+    .filter((field) => field.key && field.label)
+    .filter((field, index, array) => {
+      const firstIndex = array.findIndex((item) => item.key === field.key);
+      return firstIndex === index;
+    });
+};
+
+const normalizeLandingConfig = (landing = {}) => {
+  if (!landing || typeof landing !== "object") return undefined;
+
+  const heroImageUrl = String(landing.heroImageUrl || "").trim();
+  const heroTagline = String(landing.heroTagline || "").trim();
+  let accentColor = String(landing.accentColor || "").trim();
+  if (accentColor && !accentColor.startsWith("#")) {
+    accentColor = `#${accentColor}`;
+  }
+
+  return {
+    heroImageUrl,
+    heroTagline,
+    accentColor,
+  };
+};
 
 const getTenantUserIds = async (tenantId) => {
   const users = await User.find({ tenantId }, { _id: 1 }).lean();
@@ -238,6 +284,9 @@ const createEvent = asyncHandler(async (req, res, next) => {
     targetLeads,
     budget,
     tags,
+    image,
+    landing,
+    registrationFields,
     assignedUsers,
   } = req.body;
 
@@ -247,7 +296,7 @@ const createEvent = asyncHandler(async (req, res, next) => {
   }
 
   // Create event
-  const event = await Event.create({
+  const createPayload = {
     tenantId,
     name,
     description,
@@ -257,9 +306,20 @@ const createEvent = asyncHandler(async (req, res, next) => {
     targetLeads,
     budget,
     tags,
+    image,
     assignedUsers,
     createdBy: req.user._id,
-  });
+  };
+
+  if (landing !== undefined) {
+    createPayload.landing = normalizeLandingConfig(landing);
+  }
+  if (registrationFields !== undefined) {
+    createPayload.registrationFields =
+      normalizeEventRegistrationFields(registrationFields);
+  }
+
+  const event = await Event.create(createPayload);
 
   // Log activity
   await ActivityLog.log({
@@ -301,6 +361,9 @@ const updateEvent = asyncHandler(async (req, res, next) => {
     targetLeads,
     budget,
     tags,
+    image,
+    landing,
+    registrationFields,
     assignedUsers,
   } = req.body;
 
@@ -316,20 +379,31 @@ const updateEvent = asyncHandler(async (req, res, next) => {
   }
 
   // Update event
+  const updatePayload = {
+    name,
+    description,
+    location,
+    startDate,
+    endDate,
+    status,
+    targetLeads,
+    budget,
+    tags,
+    image,
+    assignedUsers,
+  };
+
+  if (landing !== undefined) {
+    updatePayload.landing = normalizeLandingConfig(landing);
+  }
+  if (registrationFields !== undefined) {
+    updatePayload.registrationFields =
+      normalizeEventRegistrationFields(registrationFields);
+  }
+
   const updatedEvent = await Event.findOneAndUpdate(
     { _id: req.params.id, ...eventScope },
-    {
-      name,
-      description,
-      location,
-      startDate,
-      endDate,
-      status,
-      targetLeads,
-      budget,
-      tags,
-      assignedUsers,
-    },
+    updatePayload,
     { new: true, runValidators: true },
   ).populate("clientCount");
 
@@ -370,7 +444,10 @@ const deleteEvent = asyncHandler(async (req, res, next) => {
   }
 
   // Check if event has clients
-  const clientCount = await Client.countDocuments({ tenantId, event: event._id });
+  const clientCount = await Client.countDocuments({
+    tenantId,
+    event: event._id,
+  });
   if (clientCount > 0) {
     return next(
       ApiError.badRequest(

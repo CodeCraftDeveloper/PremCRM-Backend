@@ -2,6 +2,7 @@ import Client from "../models/Client.js";
 import Event from "../models/Event.js";
 import User from "../models/User.js";
 import ActivityLog from "../models/ActivityLog.js";
+import mongoose from "mongoose";
 import { asyncHandler, successResponse } from "../utils/apiResponse.js";
 import { getCache, setCache } from "../config/redis.js";
 
@@ -25,6 +26,11 @@ const buildEventTenantScope = (tenantId, tenantUserIds = []) => ({
     },
   ],
 });
+
+const asObjectId = (value) =>
+  mongoose.Types.ObjectId.isValid(value)
+    ? new mongoose.Types.ObjectId(value)
+    : null;
 
 /**
  * @desc    Get admin dashboard data
@@ -374,103 +380,331 @@ const getMarketingDashboard = asyncHandler(async (req, res, next) => {
  * @access  Private/Admin
  */
 const getAnalytics = asyncHandler(async (req, res, next) => {
-  const { startDate, endDate, eventId, marketerId } = req.query;
+  const { startDate, endDate, eventId, marketerId, source } = req.query;
+
+  const eventObjectId = eventId ? asObjectId(eventId) : null;
+  const marketerObjectId = marketerId ? asObjectId(marketerId) : null;
 
   const matchStage = { tenantId: req.user.tenantId, isActive: true };
+  const sourceOptionsMatch = { tenantId: req.user.tenantId, isActive: true };
 
   if (startDate || endDate) {
     matchStage.createdAt = {};
-    if (startDate) matchStage.createdAt.$gte = new Date(startDate);
-    if (endDate) matchStage.createdAt.$lte = new Date(endDate);
+    sourceOptionsMatch.createdAt = {};
+    if (startDate) {
+      const start = new Date(startDate);
+      matchStage.createdAt.$gte = start;
+      sourceOptionsMatch.createdAt.$gte = start;
+    }
+    if (endDate) {
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      matchStage.createdAt.$lte = end;
+      sourceOptionsMatch.createdAt.$lte = end;
+    }
   }
 
-  if (eventId) matchStage.event = eventId;
-  if (marketerId) matchStage.marketingPerson = marketerId;
+  if (eventObjectId) {
+    matchStage.event = eventObjectId;
+    sourceOptionsMatch.event = eventObjectId;
+  }
 
-  // Status distribution
-  const statusDistribution = await Client.aggregate([
-    { $match: matchStage },
-    {
-      $group: {
-        _id: "$followUpStatus",
-        count: { $sum: 1 },
-        value: { $sum: "$estimatedValue" },
-      },
-    },
-  ]);
+  if (marketerObjectId) {
+    matchStage.marketingPerson = marketerObjectId;
+    sourceOptionsMatch.marketingPerson = marketerObjectId;
+  }
 
-  // Priority distribution
-  const priorityDistribution = await Client.aggregate([
-    { $match: matchStage },
-    {
-      $group: {
-        _id: "$priority",
-        count: { $sum: 1 },
-      },
-    },
-  ]);
+  if (source) {
+    matchStage.source = source;
+  }
 
-  // Source distribution
-  const sourceDistribution = await Client.aggregate([
-    { $match: matchStage },
-    {
-      $group: {
-        _id: "$source",
-        count: { $sum: 1 },
-      },
-    },
-  ]);
-
-  // Daily trend
-  const dailyTrend = await Client.aggregate([
-    { $match: matchStage },
-    {
-      $group: {
-        _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
-        count: { $sum: 1 },
-        converted: {
-          $sum: { $cond: [{ $eq: ["$followUpStatus", "converted"] }, 1, 0] },
-        },
-      },
-    },
-    { $sort: { _id: 1 } },
-    { $limit: 30 },
-  ]);
-
-  // Average conversion time (for converted clients)
-  const conversionTime = await Client.aggregate([
-    {
-      $match: {
-        ...matchStage,
-        followUpStatus: "converted",
-        convertedDate: { $exists: true },
-      },
-    },
-    {
-      $project: {
-        conversionDays: {
-          $divide: [
-            { $subtract: ["$convertedDate", "$createdAt"] },
-            1000 * 60 * 60 * 24,
-          ],
-        },
-      },
-    },
-    {
-      $group: {
-        _id: null,
-        avgDays: { $avg: "$conversionDays" },
-        minDays: { $min: "$conversionDays" },
-        maxDays: { $max: "$conversionDays" },
-      },
-    },
-  ]);
-
-  successResponse(res, {
+  const [
+    summaryAgg,
     statusDistribution,
     priorityDistribution,
     sourceDistribution,
     dailyTrend,
+    conversionTime,
+    revenueFunnelAgg,
+    roiByEventAgg,
+    availableSources,
+  ] = await Promise.all([
+    Client.aggregate([
+      { $match: matchStage },
+      {
+        $group: {
+          _id: null,
+          totalClients: { $sum: 1 },
+          convertedClients: {
+            $sum: {
+              $cond: [{ $eq: ["$followUpStatus", "converted"] }, 1, 0],
+            },
+          },
+          totalPipelineValue: { $sum: "$estimatedValue" },
+          realizedRevenue: {
+            $sum: {
+              $cond: [
+                { $eq: ["$followUpStatus", "converted"] },
+                "$estimatedValue",
+                0,
+              ],
+            },
+          },
+        },
+      },
+    ]),
+    Client.aggregate([
+      { $match: matchStage },
+      {
+        $group: {
+          _id: "$followUpStatus",
+          count: { $sum: 1 },
+          value: { $sum: "$estimatedValue" },
+        },
+      },
+    ]),
+    Client.aggregate([
+      { $match: matchStage },
+      {
+        $group: {
+          _id: "$priority",
+          count: { $sum: 1 },
+        },
+      },
+    ]),
+    Client.aggregate([
+      { $match: matchStage },
+      {
+        $group: {
+          _id: "$source",
+          count: { $sum: 1 },
+          value: { $sum: "$estimatedValue" },
+        },
+      },
+    ]),
+    Client.aggregate([
+      { $match: matchStage },
+      {
+        $group: {
+          _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+          count: { $sum: 1 },
+          converted: {
+            $sum: { $cond: [{ $eq: ["$followUpStatus", "converted"] }, 1, 0] },
+          },
+          revenue: {
+            $sum: {
+              $cond: [
+                { $eq: ["$followUpStatus", "converted"] },
+                "$estimatedValue",
+                0,
+              ],
+            },
+          },
+        },
+      },
+      { $sort: { _id: 1 } },
+      { $limit: 90 },
+    ]),
+    Client.aggregate([
+      {
+        $match: {
+          ...matchStage,
+          followUpStatus: "converted",
+          convertedDate: { $exists: true },
+        },
+      },
+      {
+        $project: {
+          conversionDays: {
+            $divide: [
+              { $subtract: ["$convertedDate", "$createdAt"] },
+              1000 * 60 * 60 * 24,
+            ],
+          },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          avgDays: { $avg: "$conversionDays" },
+          minDays: { $min: "$conversionDays" },
+          maxDays: { $max: "$conversionDays" },
+        },
+      },
+    ]),
+    Client.aggregate([
+      { $match: matchStage },
+      {
+        $group: {
+          _id: "$followUpStatus",
+          count: { $sum: 1 },
+          revenue: { $sum: "$estimatedValue" },
+          realizedRevenue: {
+            $sum: {
+              $cond: [
+                { $eq: ["$followUpStatus", "converted"] },
+                "$estimatedValue",
+                0,
+              ],
+            },
+          },
+        },
+      },
+    ]),
+    Client.aggregate([
+      { $match: matchStage },
+      {
+        $group: {
+          _id: "$event",
+          leadCount: { $sum: 1 },
+          convertedCount: {
+            $sum: {
+              $cond: [{ $eq: ["$followUpStatus", "converted"] }, 1, 0],
+            },
+          },
+          pipelineValue: { $sum: "$estimatedValue" },
+          realizedRevenue: {
+            $sum: {
+              $cond: [
+                { $eq: ["$followUpStatus", "converted"] },
+                "$estimatedValue",
+                0,
+              ],
+            },
+          },
+        },
+      },
+      {
+        $lookup: {
+          from: "events",
+          localField: "_id",
+          foreignField: "_id",
+          as: "event",
+          pipeline: [{ $project: { name: 1, budget: 1 } }],
+        },
+      },
+      { $unwind: { path: "$event", preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          _id: 0,
+          eventId: "$_id",
+          eventName: { $ifNull: ["$event.name", "Unassigned Event"] },
+          budget: { $ifNull: ["$event.budget", 0] },
+          leadCount: 1,
+          convertedCount: 1,
+          pipelineValue: 1,
+          realizedRevenue: 1,
+        },
+      },
+      { $sort: { realizedRevenue: -1, pipelineValue: -1 } },
+    ]),
+    Client.distinct("source", sourceOptionsMatch),
+  ]);
+
+  const stageOrder = [
+    "new",
+    "contacted",
+    "interested",
+    "negotiation",
+    "converted",
+    "lost",
+  ];
+
+  const summary = summaryAgg[0] || {
+    totalClients: 0,
+    convertedClients: 0,
+    totalPipelineValue: 0,
+    realizedRevenue: 0,
+  };
+
+  const roiByEvent = roiByEventAgg.map((item) => {
+    const leadCount = Number(item.leadCount || 0);
+    const convertedCount = Number(item.convertedCount || 0);
+    const budget = Number(item.budget || 0);
+    const realizedRevenue = Number(item.realizedRevenue || 0);
+
+    return {
+      ...item,
+      budget,
+      leadCount,
+      convertedCount,
+      pipelineValue: Number(item.pipelineValue || 0),
+      realizedRevenue,
+      conversionRate: leadCount
+        ? Number(((convertedCount / leadCount) * 100).toFixed(2))
+        : 0,
+      roi:
+        budget > 0
+          ? Number((((realizedRevenue - budget) / budget) * 100).toFixed(2))
+          : null,
+    };
+  });
+
+  const totalBudget = roiByEvent.reduce(
+    (sum, item) => sum + Number(item.budget || 0),
+    0,
+  );
+  const revenueFunnel = revenueFunnelAgg
+    .map((item) => ({
+      stage: item._id,
+      count: Number(item.count || 0),
+      revenue: Number(item.revenue || 0),
+      realizedRevenue: Number(item.realizedRevenue || 0),
+    }))
+    .sort(
+      (left, right) =>
+        stageOrder.indexOf(left.stage) - stageOrder.indexOf(right.stage),
+    );
+
+  const roiSummary = {
+    totalBudget,
+    totalPipelineValue: Number(summary.totalPipelineValue || 0),
+    realizedRevenue: Number(summary.realizedRevenue || 0),
+    roi:
+      totalBudget > 0
+        ? Number(
+            (
+              ((Number(summary.realizedRevenue || 0) - totalBudget) /
+                totalBudget) *
+              100
+            ).toFixed(2),
+          )
+        : null,
+  };
+
+  const conversionRate = summary.totalClients
+    ? Number(
+        (
+          (Number(summary.convertedClients || 0) /
+            Number(summary.totalClients || 0)) *
+          100
+        ).toFixed(2),
+      )
+    : 0;
+
+  successResponse(res, {
+    filters: {
+      startDate: startDate || null,
+      endDate: endDate || null,
+      eventId: eventId || null,
+      marketerId: marketerId || null,
+      source: source || null,
+    },
+    summary: {
+      totalClients: Number(summary.totalClients || 0),
+      convertedClients: Number(summary.convertedClients || 0),
+      conversionRate,
+      totalPipelineValue: Number(summary.totalPipelineValue || 0),
+      realizedRevenue: Number(summary.realizedRevenue || 0),
+    },
+    roiSummary,
+    statusDistribution,
+    priorityDistribution,
+    sourceDistribution,
+    dailyTrend,
+    revenueFunnel,
+    roiByEvent,
+    availableSources: availableSources.filter(Boolean).sort(),
     conversionTime: conversionTime[0] || { avgDays: 0, minDays: 0, maxDays: 0 },
   });
 });

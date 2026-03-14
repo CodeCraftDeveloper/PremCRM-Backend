@@ -3,7 +3,7 @@ import { GetObjectCommand } from "@aws-sdk/client-s3";
 import Tenant from "../models/Tenant.js";
 import User from "../models/User.js";
 import AuthService from "../core/auth/AuthService.js";
-import { getSignedFileUrl, s3Client, uploadToS3 } from "../config/s3.js";
+import { s3Client, uploadToS3 } from "../config/s3.js";
 import {
   ApiError,
   asyncHandler,

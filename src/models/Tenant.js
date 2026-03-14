@@ -32,7 +32,10 @@ const tenantSchema = new mongoose.Schema(
       logoS3Key: {
         type: String,
         trim: true,
-        maxlength: [500, "Company logo storage key cannot exceed 500 characters"],
+        maxlength: [
+          500,
+          "Company logo storage key cannot exceed 500 characters",
+        ],
       },
       logoUpdatedAt: {
         type: Date,
@@ -90,6 +93,26 @@ const tenantSchema = new mongoose.Schema(
       timezone: {
         type: String,
         default: "UTC",
+      },
+      publicEventLanding: {
+        heroImageUrl: {
+          type: String,
+          trim: true,
+          maxlength: [500, "Hero image URL cannot exceed 500 characters"],
+          default: "",
+        },
+        heroTagline: {
+          type: String,
+          trim: true,
+          maxlength: [160, "Hero tagline cannot exceed 160 characters"],
+          default: "",
+        },
+        accentColor: {
+          type: String,
+          trim: true,
+          maxlength: [20, "Accent color cannot exceed 20 characters"],
+          default: "#06b6d4",
+        },
       },
     },
     isActive: {

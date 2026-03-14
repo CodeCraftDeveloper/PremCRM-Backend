@@ -42,6 +42,24 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    notificationPreferences: {
+      newClientAssigned: {
+        type: Boolean,
+        default: true,
+      },
+      followUpReminders: {
+        type: Boolean,
+        default: true,
+      },
+      statusUpdates: {
+        type: Boolean,
+        default: false,
+      },
+      weeklyReports: {
+        type: Boolean,
+        default: false,
+      },
+    },
     isActive: {
       type: Boolean,
       default: true,

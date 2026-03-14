@@ -103,10 +103,34 @@ router.post(
       .trim()
       .isLength({ max: 100 })
       .withMessage("Product interest must not exceed 100 characters"),
+    body("ticketTypeId")
+      .optional()
+      .isMongoId()
+      .withMessage("ticketTypeId must be a valid ID"),
+    body("quantity")
+      .optional()
+      .isInt({ min: 1, max: 20 })
+      .withMessage("Quantity must be between 1 and 20"),
     body("customFields")
       .optional()
-      .isObject()
-      .withMessage("Custom fields must be an object"),
+      .custom((value) => {
+        if (value == null || value === "") return true;
+        if (typeof value === "object" && !Array.isArray(value)) return true;
+        if (typeof value === "string") {
+          try {
+            const parsed = JSON.parse(value);
+            return (
+              !!parsed && typeof parsed === "object" && !Array.isArray(parsed)
+            );
+          } catch {
+            return false;
+          }
+        }
+        return false;
+      })
+      .withMessage(
+        "Custom fields must be an object or valid JSON object string",
+      ),
     body("tags").optional().isArray().withMessage("Tags must be an array"),
     validate,
   ],

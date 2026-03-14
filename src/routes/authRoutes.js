@@ -137,6 +137,26 @@ router.put(
       .isLength({ min: 2, max: 100 })
       .withMessage("Name must be 2-100 characters"),
     commonValidations.phone("phone"),
+    body("notificationPreferences")
+      .optional()
+      .isObject()
+      .withMessage("notificationPreferences must be an object"),
+    body("notificationPreferences.newClientAssigned")
+      .optional()
+      .isBoolean()
+      .withMessage("notificationPreferences.newClientAssigned must be boolean"),
+    body("notificationPreferences.followUpReminders")
+      .optional()
+      .isBoolean()
+      .withMessage("notificationPreferences.followUpReminders must be boolean"),
+    body("notificationPreferences.statusUpdates")
+      .optional()
+      .isBoolean()
+      .withMessage("notificationPreferences.statusUpdates must be boolean"),
+    body("notificationPreferences.weeklyReports")
+      .optional()
+      .isBoolean()
+      .withMessage("notificationPreferences.weeklyReports must be boolean"),
     validate,
   ],
   updateProfile,

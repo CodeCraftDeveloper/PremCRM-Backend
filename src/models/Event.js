@@ -58,6 +58,80 @@ const eventSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    landing: {
+      heroImageUrl: {
+        type: String,
+        trim: true,
+        maxlength: [500, "Hero image URL cannot exceed 500 characters"],
+        default: "",
+      },
+      heroTagline: {
+        type: String,
+        trim: true,
+        maxlength: [160, "Hero tagline cannot exceed 160 characters"],
+        default: "",
+      },
+      accentColor: {
+        type: String,
+        trim: true,
+        maxlength: [20, "Accent color cannot exceed 20 characters"],
+        default: "",
+      },
+    },
+    registrationFields: [
+      {
+        key: {
+          type: String,
+          required: true,
+          trim: true,
+          maxlength: [60, "Field key cannot exceed 60 characters"],
+        },
+        label: {
+          type: String,
+          required: true,
+          trim: true,
+          maxlength: [120, "Field label cannot exceed 120 characters"],
+        },
+        type: {
+          type: String,
+          enum: ["text", "textarea", "select", "number", "date", "url"],
+          default: "text",
+        },
+        required: {
+          type: Boolean,
+          default: false,
+        },
+        placeholder: {
+          type: String,
+          trim: true,
+          maxlength: [160, "Placeholder cannot exceed 160 characters"],
+          default: "",
+        },
+        helpText: {
+          type: String,
+          trim: true,
+          maxlength: [200, "Help text cannot exceed 200 characters"],
+          default: "",
+        },
+        options: [
+          {
+            type: String,
+            trim: true,
+            maxlength: [120, "Option text cannot exceed 120 characters"],
+          },
+        ],
+        maxLength: {
+          type: Number,
+          min: 1,
+          max: 2000,
+          default: null,
+        },
+        sortOrder: {
+          type: Number,
+          default: 0,
+        },
+      },
+    ],
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

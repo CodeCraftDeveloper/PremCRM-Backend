@@ -1,5 +1,5 @@
 {
-  "name": "crm-server",
+  "name": "orbinest-server",
   "version": "1.0.0",
   "description": "Production-grade CRM & Query Management API",
   "license": "ISC",

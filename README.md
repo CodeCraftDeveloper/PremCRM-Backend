@@ -1,40 +1,32 @@
-# PremCRM - Backend API Server
+# Orbinest - Backend API Server
 
 ## Security Hardening (v2.0)
 
-This server has undergone a comprehensive security audit and hardening pass.
-Key improvements:
+This server includes a security hardening pass focused on tenant isolation and safer defaults.
 
 | Area | Status |
 | --- | --- |
-| **BOLA / Tenant Isolation** | All mutating endpoints verify `tenantId` ownership |
-| **File Access** | Static serving removed; files served through authenticated `/api/v1/files` route |
-| **RBAC** | `authorize()` middleware enforced on all state-changing routes |
-| **CSRF** | Double-submit cookie pattern (`csrf-token` cookie + `X-CSRF-Token` header) |
-| **WebSocket Auth** | JWT tenant match + tenant active check (parity with HTTP `protect`) |
-| **API Key** | Header-only extraction; Redis cache uses SHA-256 hash of key |
-| **Rate Limiting** | Per-route + global via `express-rate-limit` |
-| **Input Validation** | `express-validator` on all routes; `express-mongo-sanitize` globally |
-| **HTTP Headers** | Helmet with strict CSP, HSTS, X-Frame-Options DENY |
+| **BOLA / Tenant Isolation** | Mutating endpoints verify `tenantId` ownership |
+| **File Access** | Files served through authenticated `/api/v1/files` routes |
+| **RBAC** | Role checks enforced on state-changing routes |
+| **CSRF** | Double-submit cookie pattern with `csrf-token` and `X-CSRF-Token` |
+| **WebSocket Auth** | JWT tenant checks match HTTP protection behavior |
+| **API Key** | Header-only extraction; Redis cache stores SHA-256 hashes |
+| **Rate Limiting** | Per-route and global throttling via `express-rate-limit` |
+| **Input Validation** | `express-validator` and `express-mongo-sanitize` enabled |
+| **HTTP Headers** | Helmet with CSP, HSTS, and frame protections |
 
 ## Scripts
 
 ```bash
-npm run dev           # Start with nodemon (development)
-npm start             # Start production server
-npm test              # Run vitest test suite
-npm run test:coverage # Run tests with coverage report
-npm run lint          # ESLint check
-npm run validate      # Lint + test in one command
+npm run dev
+npm start
+npm test
+npm run test:coverage
+npm run lint
+npm run validate
 ```
 
 ## Environment Variables
 
-See `.env.example` for required configuration. Key secrets:
-
-- `JWT_SECRET` / `JWT_REFRESH_SECRET` - Token signing
-- `MONGODB_URI` - MongoDB connection string
-- `REDIS_URL` - Redis connection (optional, gracefully degrades)
-- `CORS_ORIGIN` - Comma-separated allowed origins
-- `PASSWORD_RESET_WEBHOOK_URL` - Webhook endpoint for password reset notifications
-- `PASSWORD_RESET_URL_TEMPLATE` - Password reset URL template with `{token}`
+See `.env.example` for required configuration.

@@ -16,6 +16,15 @@ export { default as UsageMetric } from "./UsageMetric.js";
 export { default as TenantSettings } from "./TenantSettings.js";
 export { default as Ticket } from "./Ticket.js";
 export { default as TicketRemark } from "./TicketRemark.js";
+export { default as TicketType } from "./TicketType.js";
+export { default as CouponCode } from "./CouponCode.js";
+export { default as EventRegistration } from "./EventRegistration.js";
+export { default as Waitlist } from "./Waitlist.js";
+export { default as Attendee } from "./Attendee.js";
+export { default as Order } from "./Order.js";
+export { default as Payment } from "./Payment.js";
+export { default as Registration } from "./Registration.js";
+export { default as CheckIn } from "./CheckIn.js";
 
 // CRM domain models
 export {

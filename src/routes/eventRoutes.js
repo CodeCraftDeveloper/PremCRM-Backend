@@ -93,6 +93,57 @@ router.post(
       .isFloat({ min: 0 })
       .withMessage("Budget must be a positive number"),
     body("tags").optional().isArray().withMessage("Tags must be an array"),
+    body("image")
+      .optional()
+      .isString()
+      .withMessage("Image must be a string URL"),
+    body("landing")
+      .optional()
+      .isObject()
+      .withMessage("landing must be an object"),
+    body("landing.heroImageUrl")
+      .optional()
+      .isString()
+      .isLength({ max: 500 })
+      .withMessage("landing.heroImageUrl cannot exceed 500 characters"),
+    body("landing.heroTagline")
+      .optional()
+      .isString()
+      .isLength({ max: 160 })
+      .withMessage("landing.heroTagline cannot exceed 160 characters"),
+    body("landing.accentColor")
+      .optional()
+      .isString()
+      .matches(/^#?[0-9A-Fa-f]{3,8}$/)
+      .withMessage("landing.accentColor must be a valid hex color"),
+    body("registrationFields")
+      .optional()
+      .isArray({ max: 25 })
+      .withMessage("registrationFields must be an array (max 25)"),
+    body("registrationFields.*.key")
+      .optional()
+      .isString()
+      .matches(/^[a-zA-Z0-9_-]{2,60}$/)
+      .withMessage(
+        "registrationFields key must be 2-60 chars (letters, numbers, _ or -)",
+      ),
+    body("registrationFields.*.label")
+      .optional()
+      .isString()
+      .isLength({ min: 1, max: 120 })
+      .withMessage("registrationFields label must be 1-120 characters"),
+    body("registrationFields.*.type")
+      .optional()
+      .isIn(["text", "textarea", "select", "number", "date", "url"])
+      .withMessage("registrationFields type is invalid"),
+    body("registrationFields.*.required")
+      .optional()
+      .isBoolean()
+      .withMessage("registrationFields.required must be boolean"),
+    body("registrationFields.*.options")
+      .optional()
+      .isArray({ max: 50 })
+      .withMessage("registrationFields options must be an array"),
     body("assignedUsers")
       .optional()
       .isArray()
@@ -134,6 +185,70 @@ router.put(
       .optional()
       .isISO8601()
       .withMessage("Invalid end date format"),
+    body("targetLeads")
+      .optional()
+      .isInt({ min: 0 })
+      .withMessage("Target leads must be a positive integer"),
+    body("budget")
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage("Budget must be a positive number"),
+    body("tags").optional().isArray().withMessage("Tags must be an array"),
+    body("image")
+      .optional()
+      .isString()
+      .withMessage("Image must be a string URL"),
+    body("landing")
+      .optional()
+      .isObject()
+      .withMessage("landing must be an object"),
+    body("landing.heroImageUrl")
+      .optional()
+      .isString()
+      .isLength({ max: 500 })
+      .withMessage("landing.heroImageUrl cannot exceed 500 characters"),
+    body("landing.heroTagline")
+      .optional()
+      .isString()
+      .isLength({ max: 160 })
+      .withMessage("landing.heroTagline cannot exceed 160 characters"),
+    body("landing.accentColor")
+      .optional()
+      .isString()
+      .matches(/^#?[0-9A-Fa-f]{3,8}$/)
+      .withMessage("landing.accentColor must be a valid hex color"),
+    body("registrationFields")
+      .optional()
+      .isArray({ max: 25 })
+      .withMessage("registrationFields must be an array (max 25)"),
+    body("registrationFields.*.key")
+      .optional()
+      .isString()
+      .matches(/^[a-zA-Z0-9_-]{2,60}$/)
+      .withMessage(
+        "registrationFields key must be 2-60 chars (letters, numbers, _ or -)",
+      ),
+    body("registrationFields.*.label")
+      .optional()
+      .isString()
+      .isLength({ min: 1, max: 120 })
+      .withMessage("registrationFields label must be 1-120 characters"),
+    body("registrationFields.*.type")
+      .optional()
+      .isIn(["text", "textarea", "select", "number", "date", "url"])
+      .withMessage("registrationFields type is invalid"),
+    body("registrationFields.*.required")
+      .optional()
+      .isBoolean()
+      .withMessage("registrationFields.required must be boolean"),
+    body("registrationFields.*.options")
+      .optional()
+      .isArray({ max: 50 })
+      .withMessage("registrationFields options must be an array"),
+    body("assignedUsers")
+      .optional()
+      .isArray()
+      .withMessage("Assigned users must be an array"),
     validate,
   ],
   updateEvent,

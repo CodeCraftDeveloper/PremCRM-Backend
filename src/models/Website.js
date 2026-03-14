@@ -223,6 +223,37 @@ const websiteSchema = new mongoose.Schema(
     ],
     // Form-level configuration
     formConfig: {
+      submissionTarget: {
+        type: String,
+        enum: ["lead", "event_registration"],
+        default: "lead",
+      },
+      eventConfig: {
+        eventId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Event",
+          default: null,
+        },
+        defaultTicketTypeId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "TicketType",
+          default: null,
+        },
+        defaultQuantity: {
+          type: Number,
+          min: 1,
+          max: 20,
+          default: 1,
+        },
+        allowTicketSelection: {
+          type: Boolean,
+          default: true,
+        },
+        allowQuantitySelection: {
+          type: Boolean,
+          default: true,
+        },
+      },
       // Form appearance
       formTitle: { type: String, trim: true, maxlength: 200, default: "" },
       formDescription: {
