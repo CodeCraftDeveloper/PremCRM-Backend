@@ -48,10 +48,14 @@ import logger from "./src/utils/logger.js";
 // Initialize express app
 const app = express();
 
-// Trust first proxy (Render, Railway, etc.) so Express sees correct
+// Trust first proxy (Nginx, Render, Railway, etc.) so Express sees correct
 // req.protocol / req.ip behind TLS-terminating reverse proxies.
 // Required for `secure` cookies to work in production.
 app.set("trust proxy", 1);
+
+// Detect HTTP-only mode (EC2 without TLS, etc.)
+const isHttpOnly =
+  String(process.env.FORCE_INSECURE_COOKIES || "").toLowerCase() === "true";
 
 // Attach a unique requestId to every request (must be first)
 app.use(requestIdMiddleware);
@@ -107,8 +111,12 @@ app.use(
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", "data:", "https:"],
-        connectSrc: ["'self'"],
+        imgSrc: ["'self'", "data:", "blob:", "https:"],
+        // Allow same-origin API + WebSocket connections; in HTTP-only mode also
+        // allow explicit http: so the browser never upgrades to wss/https.
+        connectSrc: isHttpOnly
+          ? ["'self'", "http:", "ws:"]
+          : ["'self'", "wss:", "https:"],
         fontSrc: ["'self'"],
         objectSrc: ["'none'"],
         frameSrc: ["'none'"],
@@ -118,11 +126,11 @@ app.use(
     },
     referrerPolicy: { policy: "strict-origin-when-cross-origin" },
     frameguard: { action: "deny" },
-    hsts: {
-      maxAge: 31_536_000, // 1 year
-      includeSubDomains: true,
-      preload: true,
-    },
+    // HSTS must NOT be sent over plain HTTP — it would lock the browser into
+    // HTTPS-only mode for a year, breaking your HTTP-only EC2 deployment.
+    hsts: isHttpOnly
+      ? false
+      : { maxAge: 31_536_000, includeSubDomains: true, preload: true },
     noSniff: true,
     xssFilter: true,
   }),
