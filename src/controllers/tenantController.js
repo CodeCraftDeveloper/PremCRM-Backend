@@ -133,18 +133,21 @@ const bootstrapTenant = asyncHandler(async (req, res, next) => {
   });
 
   const isProduction = process.env.NODE_ENV === "production";
+  const forceInsecureCookies =
+    String(process.env.FORCE_INSECURE_COOKIES || "").toLowerCase() === "true";
+  const useSecureCookies = isProduction && !forceInsecureCookies;
 
   res.cookie("accessToken", authResult.accessToken, {
     httpOnly: true,
-    secure: isProduction,
-    sameSite: isProduction ? "none" : "lax",
+    secure: useSecureCookies,
+    sameSite: useSecureCookies ? "none" : "lax",
     maxAge: 15 * 60 * 1000,
   });
 
   res.cookie("refreshToken", authResult.refreshToken, {
     httpOnly: true,
-    secure: isProduction,
-    sameSite: isProduction ? "none" : "lax",
+    secure: useSecureCookies,
+    sameSite: useSecureCookies ? "none" : "lax",
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 

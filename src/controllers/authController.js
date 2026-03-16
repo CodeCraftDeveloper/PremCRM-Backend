@@ -32,10 +32,13 @@ const buildInviteAcceptUrl = (inviteToken) => {
 // Shared cookie options for auth tokens.
 // Cross-origin deployments (frontend ≠ backend domain) need SameSite=None.
 const isProduction = process.env.NODE_ENV === "production";
+const forceInsecureCookies =
+  String(process.env.FORCE_INSECURE_COOKIES || "").toLowerCase() === "true";
+const useSecureCookies = isProduction && !forceInsecureCookies;
 const authCookieOptions = (maxAge) => ({
   httpOnly: true,
-  secure: isProduction,
-  sameSite: isProduction ? "none" : "lax",
+  secure: useSecureCookies,
+  sameSite: useSecureCookies ? "none" : "lax",
   ...(maxAge != null && { maxAge }),
 });
 

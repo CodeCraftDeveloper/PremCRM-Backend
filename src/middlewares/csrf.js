@@ -63,10 +63,13 @@ export function csrfProtection(req, res, next) {
 
   // Re-set the cookie on every response (refresh expiry, ensure it exists)
   const isProduction = process.env.NODE_ENV === "production";
+  const forceInsecureCookies =
+    String(process.env.FORCE_INSECURE_COOKIES || "").toLowerCase() === "true";
+  const useSecureCookies = isProduction && !forceInsecureCookies;
   res.cookie("csrf-token", csrfToken, {
     httpOnly: false, // JS must read it
-    secure: isProduction,
-    sameSite: isProduction ? "none" : "lax",
+    secure: useSecureCookies,
+    sameSite: useSecureCookies ? "none" : "lax",
     path: "/",
     maxAge: 24 * 60 * 60 * 1000, // 24 h
   });
@@ -98,10 +101,13 @@ export function csrfProtection(req, res, next) {
 export function getCsrfToken(req, res) {
   const token = crypto.randomBytes(32).toString("hex");
   const isProduction = process.env.NODE_ENV === "production";
+  const forceInsecureCookies =
+    String(process.env.FORCE_INSECURE_COOKIES || "").toLowerCase() === "true";
+  const useSecureCookies = isProduction && !forceInsecureCookies;
   res.cookie("csrf-token", token, {
     httpOnly: false,
-    secure: isProduction,
-    sameSite: isProduction ? "none" : "lax",
+    secure: useSecureCookies,
+    sameSite: useSecureCookies ? "none" : "lax",
     path: "/",
     maxAge: 24 * 60 * 60 * 1000,
   });
