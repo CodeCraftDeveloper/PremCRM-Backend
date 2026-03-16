@@ -58,12 +58,26 @@ app.use(requestIdMiddleware);
 
 // Track request duration & log slow requests
 app.use(requestDuration);
-const normalizeOrigin = (value = "") =>
-  value
+const normalizeOrigin = (value = "") => {
+  const trimmed = value
     .trim()
     .replace(/^["']|["']$/g, "")
     .replace(/\/+$/, "")
     .toLowerCase();
+  try {
+    const url = new URL(trimmed);
+    // Strip default ports so http://host:80 === http://host
+    if (
+      (url.protocol === "http:" && url.port === "80") ||
+      (url.protocol === "https:" && url.port === "443")
+    ) {
+      url.port = "";
+    }
+    return `${url.protocol}//${url.hostname}${url.port ? `:${url.port}` : ""}`;
+  } catch {
+    return trimmed;
+  }
+};
 
 const envOrigins = (process.env.CORS_ORIGIN || "http://localhost:5173")
   .split(",")
@@ -156,6 +170,9 @@ app.use(
         if (allowedOrigins.includes(normalizedOrigin)) {
           return originCallback(null, true);
         }
+        logger.error(
+          `CORS blocked for origin: ${origin} (normalized: ${normalizedOrigin}) — allowed: [${allowedOrigins.join(", ")}]`,
+        );
         return originCallback(new Error(`CORS blocked for origin: ${origin}`));
       },
     });
