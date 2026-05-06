@@ -16,14 +16,10 @@ import {
   successResponse,
 } from "../utils/apiResponse.js";
 import logger from "../utils/logger.js";
-
-const PLATFORM_TENANT_SLUG = "__platform__";
-
-const isProtectedPlatformOwner = async (user) => {
-  if (!user || user.role !== "superadmin") return false;
-  const tenant = await Tenant.findById(user.tenantId).select("slug").lean();
-  return tenant?.slug === PLATFORM_TENANT_SLUG;
-};
+import {
+  PLATFORM_TENANT_SLUG,
+  isProtectedPlatformOwner,
+} from "../utils/platformOwner.js";
 
 // ─── Platform Overview Dashboard ─────────────────────────────────────────────
 

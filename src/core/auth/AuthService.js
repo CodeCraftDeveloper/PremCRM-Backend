@@ -12,6 +12,10 @@ import {
 import redis from "../../config/redis.js";
 import logger from "../../utils/logger.js";
 import { sendPasswordResetNotification } from "../../utils/passwordResetNotifier.js";
+import {
+  assertMutablePlatformUser,
+  isPlatformOwnerEmail,
+} from "../../utils/platformOwner.js";
 
 const HASH_ALGORITHM = "sha256";
 const PLATFORM_TENANT_SLUG = "__platform__";
@@ -345,6 +349,11 @@ class AuthService {
    */
   static async initiatePasswordReset(email) {
     try {
+      if (isPlatformOwnerEmail(email)) {
+        logger.warn("Password reset ignored for fixed platform owner account");
+        return;
+      }
+
       const user = await User.findOne({ email });
 
       // Return success even if user doesn't exist (security)
@@ -407,6 +416,8 @@ class AuthService {
         throw new Error("Invalid or expired reset token");
       }
 
+      await assertMutablePlatformUser(user);
+
       // Update password
       user.password = newPassword;
       user.passwordResetToken = undefined;
@@ -441,6 +452,8 @@ class AuthService {
       if (!user) {
         throw new Error("User not found");
       }
+
+      await assertMutablePlatformUser(user);
 
       const isValidPassword = await bcrypt.compare(
         currentPassword,

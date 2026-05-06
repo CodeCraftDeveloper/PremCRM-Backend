@@ -5,6 +5,7 @@ import {
   getAnalytics,
 } from "../controllers/dashboardController.js";
 import { protect, adminOnly, marketingOrAdmin } from "../middlewares/auth.js";
+import { requirePlanFeature } from "../middlewares/planGate.js";
 import { validate, commonValidations } from "../utils/validators.js";
 
 const router = express.Router();
@@ -28,12 +29,13 @@ router.get("/marketing", marketingOrAdmin, getMarketingDashboard);
 
 /**
  * @route   GET /api/dashboard/analytics
- * @desc    Get dashboard analytics
+ * @desc    Get dashboard analytics (advanced — gated by plan)
  * @access  Private/Admin
  */
 router.get(
   "/analytics",
   adminOnly,
+  requirePlanFeature("analyticsAdvanced"),
   [...commonValidations.pagination(), validate],
   getAnalytics,
 );

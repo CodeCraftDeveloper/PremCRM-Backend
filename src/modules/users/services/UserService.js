@@ -1,5 +1,6 @@
 import User from "../../models/User.js";
 import logger from "../../utils/logger.js";
+import { assertMutablePlatformUser } from "../../utils/platformOwner.js";
 
 /**
  * UserService
@@ -190,13 +191,12 @@ class UserService {
         }
       });
 
-      const user = await User.findOneAndUpdate(
-        { _id: userId, tenantId },
-        updateData,
-        { new: true, runValidators: true },
-      );
+      const user = await User.findOne({ _id: userId, tenantId });
 
       if (user) {
+        await assertMutablePlatformUser(user);
+        Object.assign(user, updateData);
+        await user.save();
         logger.info(`User profile updated: ${userId}`);
       }
       return user;
@@ -223,6 +223,8 @@ class UserService {
       if (!user) {
         throw new Error("User not found");
       }
+
+      await assertMutablePlatformUser(user);
 
       // Verify current password
       const isValid = await user.comparePassword(currentPassword);
@@ -251,13 +253,12 @@ class UserService {
   static async setUserStatus(userId, tenantId, isActive) {
     if (!tenantId) throw new Error("tenantId is required");
     try {
-      const user = await User.findOneAndUpdate(
-        { _id: userId, tenantId },
-        { isActive },
-        { new: true },
-      );
+      const user = await User.findOne({ _id: userId, tenantId });
 
       if (user) {
+        await assertMutablePlatformUser(user);
+        user.isActive = isActive;
+        await user.save();
         logger.info(`User status updated: ${userId}, isActive: ${isActive}`);
       }
       return user;

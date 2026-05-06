@@ -1,5 +1,6 @@
 import express from "express";
 import { protect, authorize } from "../../middlewares/auth.js";
+import { requirePlanFeature } from "../../middlewares/planGate.js";
 import { ApiError } from "../../utils/apiResponse.js";
 import { publicFormFetchLimiter } from "../../middlewares/rateLimiter.js";
 import { validateMongoId } from "../../middlewares/requestValidators.js";
@@ -35,6 +36,7 @@ router.get("/public/:apiName", (req, res, next) => {
 
 // ── Authenticated routes ────────────────────────────────
 router.use(protect);
+router.use(requirePlanFeature("crmAdvanced"));
 
 router.get("/", authorize("admin", "marketing"), getForms);
 router.get("/:id", authorize("admin", "marketing"), validateMongoId(), getForm);

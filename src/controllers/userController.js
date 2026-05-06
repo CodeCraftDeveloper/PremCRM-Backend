@@ -10,6 +10,7 @@ import {
 } from "../utils/apiResponse.js";
 import { deleteCachePattern } from "../config/redis.js";
 import logger from "../utils/logger.js";
+import { isProtectedPlatformOwner } from "../utils/platformOwner.js";
 
 const isTenantActiveUser = (user) =>
   Boolean(user?.isActive) && user?.approvalStatus !== "rejected";
@@ -187,6 +188,12 @@ const updateUser = asyncHandler(async (req, res, next) => {
     return next(ApiError.notFound("User not found"));
   }
 
+  if (await isProtectedPlatformOwner(user)) {
+    return next(
+      ApiError.forbidden("Platform Owner credentials are fixed and immutable"),
+    );
+  }
+
   const wasTenantActive = isTenantActiveUser(user);
 
   // Prevent admin from changing their own role
@@ -324,6 +331,12 @@ const resetUserPassword = asyncHandler(async (req, res, next) => {
 
   if (!user) {
     return next(ApiError.notFound("User not found"));
+  }
+
+  if (await isProtectedPlatformOwner(user)) {
+    return next(
+      ApiError.forbidden("Platform Owner credentials are fixed and immutable"),
+    );
   }
 
   user.password = newPassword;

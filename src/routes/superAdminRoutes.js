@@ -65,7 +65,9 @@ router.post(
       .matches(/^[a-z0-9-]{2,80}$/),
     body("companyName").optional({ checkFalsy: true }).trim(),
     body("companyRef").optional({ checkFalsy: true }).trim(),
-    body("plan").optional().isIn(["free", "pro", "enterprise"]),
+    body("plan")
+      .optional()
+      .isIn(["free", "starter", "pro", "growth", "agency", "enterprise"]),
     body("adminName").optional({ checkFalsy: true }).trim(),
     body("adminEmail").optional({ checkFalsy: true }).isEmail(),
     body("adminPassword").optional({ checkFalsy: true }).isLength({ min: 8 }),
@@ -80,7 +82,9 @@ router.put(
   [
     commonValidations.mongoId("id"),
     body("name").optional().trim().isLength({ min: 2, max: 120 }),
-    body("plan").optional().isIn(["free", "pro", "enterprise"]),
+    body("plan")
+      .optional()
+      .isIn(["free", "starter", "pro", "growth", "agency", "enterprise"]),
     body("isActive").optional().isBoolean(),
     body("settings").optional().isObject(),
     body("company").optional().isObject(),

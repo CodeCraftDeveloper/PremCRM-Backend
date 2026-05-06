@@ -49,8 +49,10 @@ const tenantSchema = new mongoose.Schema(
     },
     plan: {
       type: String,
-      enum: ["free", "pro", "enterprise"],
-      default: "free",
+      // Canonical tiers: starter, growth, agency, enterprise
+      // Legacy aliases kept for backward compatibility: free (= starter), pro (= growth)
+      enum: ["free", "starter", "pro", "growth", "agency", "enterprise"],
+      default: "starter",
     },
     activeUsers: {
       type: Number,

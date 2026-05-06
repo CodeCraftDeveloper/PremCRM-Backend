@@ -1,6 +1,5 @@
 import Blog from "../models/Blog.js";
 import Website from "../models/Website.js";
-import User from "../models/User.js";
 import {
   ApiError,
   asyncHandler,

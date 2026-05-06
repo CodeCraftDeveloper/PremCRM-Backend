@@ -735,9 +735,8 @@ const resetPassword = asyncHandler(async (req, res, next) => {
       "Password reset successful. Please login with your new password.",
     );
   } catch (error) {
-    next(
-      ApiError.badRequest(error.message || "Invalid or expired reset token"),
-    );
+    if (error.statusCode) return next(error);
+    next(ApiError.badRequest(error.message || "Invalid or expired reset token"));
   }
 });
 

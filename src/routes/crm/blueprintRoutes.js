@@ -1,5 +1,6 @@
 import express from "express";
 import { protect, authorize } from "../../middlewares/auth.js";
+import { requirePlanFeature } from "../../middlewares/planGate.js";
 import {
   validateMongoId,
   validatePagination,
@@ -16,6 +17,7 @@ import {
 const router = express.Router();
 
 router.use(protect);
+router.use(requirePlanFeature("crmAdvanced"));
 
 router.get(
   "/",
