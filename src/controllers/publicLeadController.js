@@ -679,6 +679,28 @@ const getPublicApiDocs = asyncHandler(async (req, res, next) => {
           description: "Check API health",
           authentication: "API key",
         },
+        listBlogs: {
+          method: "GET",
+          path: "/public/blogs",
+          description:
+            "Fetch published blogs for the website tied to the supplied API key",
+          authentication: "API key (x-api-key header)",
+          queryParams: ["page", "limit", "category", "search", "sortBy", "sortOrder"],
+        },
+        blogCategories: {
+          method: "GET",
+          path: "/public/blogs/categories",
+          description:
+            "Fetch published blog categories for the website tied to the supplied API key",
+          authentication: "API key (x-api-key header)",
+        },
+        blogDetail: {
+          method: "GET",
+          path: "/public/blogs/:slug",
+          description:
+            "Fetch one published blog by slug for the website tied to the supplied API key",
+          authentication: "API key (x-api-key header)",
+        },
       },
       codeExamples: {
         javascript: `
@@ -728,6 +750,41 @@ fetch('https://yourcrm.com/api/public/lead', {
 })
 .then(res => res.json())
 .then(console.log);
+        `,
+        blogFetch: `
+// Fetch published blogs for the website behind this API key
+const apiKey = 'your-api-key-here';
+
+const getSafeTag = (tag, fallback = 'div') =>
+  /^[a-z][a-z0-9-]*$/i.test(tag || '') ? tag.toLowerCase() : fallback;
+
+fetch('https://yourcrm.com/api/public/blogs?page=1&limit=6', {
+  headers: { 'x-api-key': apiKey }
+})
+  .then(res => res.json())
+  .then(({ data }) => {
+    console.log('blogs', data.blogs);
+    console.log('config', data.config);
+    console.log('pagination', data.pagination);
+
+    // Example: render one title using the website-managed tag
+    const titleTag = getSafeTag(data.config?.listing?.elements?.titleTag, 'h3');
+    const titleNode = document.createElement(titleTag);
+    titleNode.textContent = data.blogs?.[0]?.title || 'Latest Blog';
+    document.body.appendChild(titleNode);
+  });
+
+fetch('https://yourcrm.com/api/public/blogs/categories', {
+  headers: { 'x-api-key': apiKey }
+})
+  .then(res => res.json())
+  .then(({ data }) => console.log('categories', data.categories));
+
+fetch('https://yourcrm.com/api/public/blogs/my-blog-slug', {
+  headers: { 'x-api-key': apiKey }
+})
+  .then(res => res.json())
+  .then(({ data }) => console.log('blog', data.blog));
         `,
         curl: `
 curl -X POST https://yourcrm.com/api/public/lead \\

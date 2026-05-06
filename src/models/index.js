@@ -25,6 +25,7 @@ export { default as Order } from "./Order.js";
 export { default as Payment } from "./Payment.js";
 export { default as Registration } from "./Registration.js";
 export { default as CheckIn } from "./CheckIn.js";
+export { default as Blog } from "./Blog.js";
 
 // CRM domain models
 export {

@@ -355,6 +355,70 @@ const websiteSchema = new mongoose.Schema(
         },
       },
     },
+    // Blog presentation configuration for external blog integrations
+    blogConfig: {
+      listing: {
+        visibleFields: {
+          title: { type: Boolean, default: true },
+          description: { type: Boolean, default: true },
+          category: { type: Boolean, default: true },
+          author: { type: Boolean, default: true },
+          publishedAt: { type: Boolean, default: true },
+          readingTime: { type: Boolean, default: true },
+          featuredImage: { type: Boolean, default: true },
+          tags: { type: Boolean, default: true },
+        },
+        elements: {
+          containerTag: { type: String, default: "article" },
+          titleTag: { type: String, default: "h3" },
+          descriptionTag: { type: String, default: "p" },
+          categoryTag: { type: String, default: "span" },
+          metaTag: { type: String, default: "div" },
+          imageTag: { type: String, default: "img" },
+        },
+        styles: {
+          backgroundColor: { type: String, default: "#ffffff" },
+          textColor: { type: String, default: "#111827" },
+          accentColor: { type: String, default: "#4f46e5" },
+          backgroundImage: { type: String, default: "" },
+          textAlign: {
+            type: String,
+            enum: ["left", "center", "right"],
+            default: "left",
+          },
+        },
+      },
+      detail: {
+        visibleFields: {
+          title: { type: Boolean, default: true },
+          content: { type: Boolean, default: true },
+          category: { type: Boolean, default: true },
+          author: { type: Boolean, default: true },
+          publishedAt: { type: Boolean, default: true },
+          featuredImage: { type: Boolean, default: true },
+          tags: { type: Boolean, default: true },
+        },
+        elements: {
+          containerTag: { type: String, default: "article" },
+          titleTag: { type: String, default: "h1" },
+          contentTag: { type: String, default: "div" },
+          categoryTag: { type: String, default: "span" },
+          metaTag: { type: String, default: "div" },
+          imageTag: { type: String, default: "img" },
+        },
+        styles: {
+          backgroundColor: { type: String, default: "#ffffff" },
+          textColor: { type: String, default: "#111827" },
+          accentColor: { type: String, default: "#4f46e5" },
+          backgroundImage: { type: String, default: "" },
+          textAlign: {
+            type: String,
+            enum: ["left", "center", "right"],
+            default: "left",
+          },
+        },
+      },
+    },
   },
   {
     timestamps: true,

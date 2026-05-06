@@ -48,7 +48,7 @@ export const validateApiKey = async (req, res, next) => {
       // Query database
       website = await Website.findOne(
         { apiKey, isActive: true },
-        "tenantId name domain category stats rateLimit webhookUrl ipWhitelist apiKeyPrefix products formFields formConfig",
+        "tenantId name domain category stats rateLimit webhookUrl ipWhitelist apiKeyPrefix products formFields formConfig blogConfig",
       ).lean();
 
       if (!website) {

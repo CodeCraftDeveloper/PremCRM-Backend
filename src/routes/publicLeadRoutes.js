@@ -8,6 +8,11 @@ import {
   getPublicFormSchema,
 } from "../controllers/publicLeadController.js";
 import {
+  getPublicBlogsByApiKey,
+  getPublicBlogCategoriesByApiKey,
+  getPublicBlogBySlugUsingApiKey,
+} from "../controllers/publicBlogIntegrationController.js";
+import {
   validateApiKey,
   leadRateLimit,
   validateIpWhitelist,
@@ -161,6 +166,37 @@ router.get(
   validateApiKey,
   logPublicApiRequest,
   getPublicFormSchema,
+);
+
+/**
+ * @route   GET /api/public/blogs
+ * @desc    Get published blogs for the website behind the supplied API key
+ * @access  Public (API key required)
+ */
+router.get("/blogs", validateApiKey, logPublicApiRequest, getPublicBlogsByApiKey);
+
+/**
+ * @route   GET /api/public/blogs/categories
+ * @desc    Get blog categories for the website behind the supplied API key
+ * @access  Public (API key required)
+ */
+router.get(
+  "/blogs/categories",
+  validateApiKey,
+  logPublicApiRequest,
+  getPublicBlogCategoriesByApiKey,
+);
+
+/**
+ * @route   GET /api/public/blogs/:slug
+ * @desc    Get one published blog by slug for the website behind the supplied API key
+ * @access  Public (API key required)
+ */
+router.get(
+  "/blogs/:slug",
+  validateApiKey,
+  logPublicApiRequest,
+  getPublicBlogBySlugUsingApiKey,
 );
 
 /**

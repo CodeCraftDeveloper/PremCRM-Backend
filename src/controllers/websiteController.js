@@ -131,6 +131,7 @@ const createWebsite = asyncHandler(async (req, res, next) => {
       products,
       formFields,
       formConfig,
+      blogConfig,
     } = req.body;
 
     if (!name || !domain) {
@@ -183,6 +184,7 @@ const createWebsite = asyncHandler(async (req, res, next) => {
         : [],
       formConfig:
         formConfig && typeof formConfig === "object" ? formConfig : {},
+      blogConfig: blogConfig && typeof blogConfig === "object" ? blogConfig : {},
       createdBy: req.user._id,
     });
 
@@ -226,6 +228,7 @@ const updateWebsite = asyncHandler(async (req, res, next) => {
       "products",
       "formFields",
       "formConfig",
+      "blogConfig",
     ];
 
     // Sanitize products array if present
