@@ -20,7 +20,17 @@ import crypto from "crypto";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
-const SKIP_PREFIXES = ["/api/public/", "/api/v1/public/", "/api/health"];
+const SKIP_PREFIXES = [
+  "/api/public/",
+  "/api/v1/public/",
+  "/api/health",
+  // Provider webhooks: no browser cookie context — verified by their own
+  // signature/token mechanism (see services/pubsubVerificationService.js).
+  "/api/integrations/google/pubsub/",
+  "/api/v1/integrations/google/pubsub/",
+  "/api/integrations/whatsapp/webhook",
+  "/api/v1/integrations/whatsapp/webhook",
+];
 
 // Auth endpoints that must work without a CSRF cookie (fresh browser, expired
 // cookie, or token-based proof).  These rely on their own credentials /

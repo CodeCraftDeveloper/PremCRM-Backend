@@ -4,6 +4,9 @@ import { BULLMQ_PREFIX } from "./registry.js";
 import { QUEUE_NAMES, isKnownQueueName } from "./queueNames.js";
 import { processSmokeTest } from "./processors/smokeTestProcessor.js";
 import { processWorkflowExecute } from "./processors/workflowExecuteProcessor.js";
+import { processInboundWebhook } from "./processors/inboundWebhookProcessor.js";
+import { processGmailSync } from "./processors/gmailSyncProcessor.js";
+import { processWhatsappMessage } from "./processors/whatsappMessageProcessor.js";
 import {
   isTerminalFailure,
   recordFailedJob,
@@ -22,6 +25,9 @@ const workers = new Map();
 export const PROCESSORS = Object.freeze({
   [QUEUE_NAMES.SMOKE_TEST]: processSmokeTest,
   [QUEUE_NAMES.WORKFLOW_EXECUTE]: processWorkflowExecute,
+  [QUEUE_NAMES.INBOUND_WEBHOOKS]: processInboundWebhook,
+  [QUEUE_NAMES.GMAIL_SYNC]: processGmailSync,
+  [QUEUE_NAMES.WHATSAPP_MESSAGES]: processWhatsappMessage,
 });
 
 const DEFAULT_CONCURRENCY = Number(process.env.WORKER_CONCURRENCY) || 5;

@@ -30,6 +30,12 @@ import {
   queueRoutes,
 } from "./src/routes/index.js";
 import crmRoutes from "./src/routes/crm/index.js";
+import inboxRoutes from "./src/routes/inbox/inboxRoutes.js";
+import gmailOutboundRoutes from "./src/routes/inbox/gmailOutboundRoutes.js";
+import whatsappOutboundRoutes from "./src/routes/inbox/whatsappOutboundRoutes.js";
+import googleIntegrationRoutes from "./src/routes/integrations/googleRoutes.js";
+import googlePubsubRoutes from "./src/routes/integrations/googlePubsubRoutes.js";
+import whatsappIntegrationRoutes from "./src/routes/integrations/whatsappRoutes.js";
 
 // Import middlewares
 import { errorHandler, notFound } from "./src/middlewares/error.js";
@@ -211,7 +217,16 @@ app.use("/api/", apiLimiter);
 // =====================
 
 // Body parser
-app.use(express.json({ limit: "10kb" }));
+app.use(
+  express.json({
+    limit: "10kb",
+    verify: (req, _res, buf) => {
+      if (req.originalUrl?.includes("/integrations/whatsapp/webhook")) {
+        req.rawBody = Buffer.from(buf);
+      }
+    },
+  }),
+);
 app.use(express.urlencoded({ extended: true, limit: "10kb" }));
 app.use(cookieParser());
 
@@ -382,6 +397,16 @@ app.use("/api/v1/tickets", ticketRoutes);
 app.use("/api/v1/files", fileRoutes);
 app.use("/api/v1/blogs", blogRoutes);
 app.use("/api/v1/crm", crmRoutes);
+app.use("/api/v1/inbox", inboxRoutes);
+app.use("/api/v1/inbox/gmail", gmailOutboundRoutes);
+app.use("/api/v1/inbox/whatsapp", whatsappOutboundRoutes);
+// Public Pub/Sub push routes must mount BEFORE the protected
+// `/api/v1/integrations/google` router so Express matches them first
+// (otherwise the parent router's `protect` middleware short-circuits
+// with 401 before the public webhook handler is reached).
+app.use("/api/v1/integrations/google/pubsub", googlePubsubRoutes);
+app.use("/api/v1/integrations/google", googleIntegrationRoutes);
+app.use("/api/v1/integrations/whatsapp", whatsappIntegrationRoutes);
 app.use("/api/v1/queues", queueRoutes);
 
 // Backward-compat: /api/* → same handlers (no redirect, no duplication)
@@ -404,6 +429,12 @@ app.use("/api/tickets", ticketRoutes);
 app.use("/api/files", fileRoutes);
 app.use("/api/blogs", blogRoutes);
 app.use("/api/crm", crmRoutes);
+app.use("/api/inbox", inboxRoutes);
+app.use("/api/inbox/gmail", gmailOutboundRoutes);
+app.use("/api/inbox/whatsapp", whatsappOutboundRoutes);
+app.use("/api/integrations/google/pubsub", googlePubsubRoutes);
+app.use("/api/integrations/google", googleIntegrationRoutes);
+app.use("/api/integrations/whatsapp", whatsappIntegrationRoutes);
 app.use("/api/queues", queueRoutes);
 
 // =====================
@@ -589,6 +620,89 @@ app.get("/api", (req, res) => {
           "GET /api/crm/analytics/owner-performance":
             "Owner performance (Admin)",
           "GET /api/crm/analytics/stage-duration/:pipelineId": "Stage duration",
+        },
+      },
+      inbox: {
+        channels: {
+          "GET /api/v1/inbox/channels": "List channel accounts",
+          "GET /api/v1/inbox/channels/:id": "Get channel account",
+          "POST /api/v1/inbox/channels": "Connect channel (Admin)",
+          "PUT /api/v1/inbox/channels/:id": "Update channel (Admin)",
+          "DELETE /api/v1/inbox/channels/:id": "Disconnect channel (Admin)",
+        },
+        conversations: {
+          "GET /api/v1/inbox/conversations": "List conversations (filterable)",
+          "GET /api/v1/inbox/conversations/:id": "Get conversation",
+          "PUT /api/v1/inbox/conversations/:id": "Update conversation",
+          "PATCH /api/v1/inbox/conversations/:id/assign": "Assign conversation",
+          "PATCH /api/v1/inbox/conversations/:id/read": "Mark as read",
+          "PATCH /api/v1/inbox/conversations/:id/unread": "Mark as unread",
+          "PATCH /api/v1/inbox/conversations/:id/close": "Close conversation",
+          "PATCH /api/v1/inbox/conversations/:id/reopen": "Reopen conversation",
+          "PATCH /api/v1/inbox/conversations/:id/snooze": "Snooze conversation",
+          "DELETE /api/v1/inbox/conversations/:id": "Delete conversation (Admin)",
+        },
+        messages: {
+          "GET /api/v1/inbox/conversations/:id/messages": "List messages (threaded)",
+          "POST /api/v1/inbox/conversations/:id/messages": "Send/queue message",
+          "GET /api/v1/inbox/messages/:id": "Get single message",
+        },
+        identities: {
+          "GET /api/v1/inbox/identities": "List contact identities",
+          "PATCH /api/v1/inbox/identities/:id/link": "Link identity to contact",
+        },
+        summary: {
+          "GET /api/v1/inbox/summary": "Inbox summary (unread counts)",
+        },
+        gmail: {
+          "POST /api/v1/inbox/gmail/conversations/:conversationId/draft":
+            "Compose a Gmail outbound draft (admin/marketing)",
+          "GET /api/v1/inbox/gmail/approvals":
+            "List Gmail approval requests (admin/marketing)",
+          "POST /api/v1/inbox/gmail/approvals/:id/approve":
+            "Approve a pending draft and queue the send (Admin)",
+          "POST /api/v1/inbox/gmail/approvals/:id/reject":
+            "Reject a pending draft (Admin)",
+        },
+        whatsapp: {
+          "POST /api/v1/inbox/whatsapp/conversations/:conversationId/draft":
+            "Compose a WhatsApp outbound draft (admin/marketing)",
+          "GET /api/v1/inbox/whatsapp/approvals":
+            "List WhatsApp approval requests (admin/marketing)",
+          "POST /api/v1/inbox/whatsapp/approvals/:id/approve":
+            "Approve a pending WhatsApp draft and queue the send (Admin)",
+          "POST /api/v1/inbox/whatsapp/approvals/:id/reject":
+            "Reject a pending WhatsApp draft (Admin)",
+        },
+      },
+      integrations: {
+        google: {
+          "GET /api/v1/integrations/google/oauth/start":
+            "Create Google OAuth consent URL (Admin)",
+          "GET /api/v1/integrations/google/oauth/callback":
+            "Handle Google OAuth callback and connect Gmail (Admin)",
+          "POST /api/v1/integrations/google/accounts/:id/refresh-token":
+            "Refresh stored Gmail access token (Admin)",
+          "POST /api/v1/integrations/google/accounts/:id/watch/start":
+            "Start Gmail Pub/Sub watch (Admin)",
+          "POST /api/v1/integrations/google/accounts/:id/watch/stop":
+            "Stop Gmail Pub/Sub watch (Admin)",
+          "POST /api/v1/integrations/google/pubsub/gmail/push":
+            "Public Gmail Pub/Sub push endpoint (verification token required)",
+        },
+        whatsapp: {
+          "GET /api/v1/integrations/whatsapp/webhook":
+            "Public WhatsApp webhook verification challenge",
+          "POST /api/v1/integrations/whatsapp/webhook":
+            "Public WhatsApp webhook receiver",
+          "GET /api/v1/integrations/whatsapp/accounts":
+            "List connected WhatsApp Cloud API accounts (Admin)",
+          "POST /api/v1/integrations/whatsapp/accounts":
+            "Connect or update a WhatsApp Cloud API account (Admin)",
+          "GET /api/v1/integrations/whatsapp/accounts/:id":
+            "Get a WhatsApp account (Admin)",
+          "DELETE /api/v1/integrations/whatsapp/accounts/:id":
+            "Disconnect a WhatsApp account (Admin)",
         },
       },
     },

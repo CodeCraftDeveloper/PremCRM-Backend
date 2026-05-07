@@ -50,6 +50,8 @@ const auditLogSchema = new mongoose.Schema(
         "custom_field",
         "module_layout",
         "form_definition",
+        "message",
+        "approval_request",
       ],
     },
     entityId: {

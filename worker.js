@@ -17,6 +17,7 @@ import logger from "./src/utils/logger.js";
 import connectDB from "./src/config/db.js";
 import { closeQueues, isBullConnectionEnabled } from "./src/queue/index.js";
 import { bootstrapWorkers, closeWorkers } from "./src/queue/workers.js";
+import { scheduleGmailWatchRenewals } from "./src/queue/schedulers/gmailWatchRenewalScheduler.js";
 
 let isShuttingDown = false;
 let healthServer = null;
@@ -72,6 +73,14 @@ async function start() {
       "No workers registered (Redis unavailable). Refusing to stay up.",
     );
     process.exit(1);
+  }
+
+  try {
+    await scheduleGmailWatchRenewals();
+  } catch (err) {
+    logger.error(
+      `Gmail watch renewal scheduler failed to register: ${err?.message || err}`,
+    );
   }
 
   const port = Number(process.env.WORKER_HEALTH_PORT) || 0;

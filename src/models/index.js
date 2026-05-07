@@ -26,6 +26,18 @@ export { default as Payment } from "./Payment.js";
 export { default as Registration } from "./Registration.js";
 export { default as CheckIn } from "./CheckIn.js";
 export { default as Blog } from "./Blog.js";
+export { default as OAuthState, OAUTH_STATE_PROVIDERS } from "./OAuthState.js";
+export {
+  default as IntegrationEvent,
+  INTEGRATION_EVENT_PROVIDERS,
+  INTEGRATION_EVENT_STATUSES,
+} from "./IntegrationEvent.js";
+export {
+  default as ApprovalRequest,
+  APPROVAL_REQUEST_TYPES,
+  APPROVAL_REQUEST_STATUSES,
+  APPROVAL_RELATED_ENTITY_TYPES,
+} from "./ApprovalRequest.js";
 
 // Workflow v2 (graph automation) — supersedes legacy AutomationRule.
 // v1 keeps running until P3-003 moves execution onto the workflow.execute
