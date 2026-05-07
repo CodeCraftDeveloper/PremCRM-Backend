@@ -10,6 +10,7 @@ import LeadService from "../core/leads/LeadService.js";
 import DuplicateDetectionService from "../core/leads/DuplicateDetectionService.js";
 import AssignmentService from "../core/leads/AssignmentService.js";
 import { uploadToS3, deleteFromS3 } from "../config/s3.js";
+import { emitCrmEvent } from "../services/workflow/index.js";
 import logger from "../utils/logger.js";
 import fs from "fs";
 import path from "path";
@@ -191,6 +192,15 @@ const createLeadManual = asyncHandler(async (req, res, next) => {
       .populate("websiteId", "name domain")
       .lean();
 
+    // Fire CRM event bus (v1 + v2 workflows)
+    emitCrmEvent({
+      tenantId: req.user.tenantId,
+      module: "lead",
+      triggerType: "on_create",
+      entity: createdLead || { _id: result.leadId },
+      user: req.user,
+    });
+
     successResponse(
       res,
       { lead: createdLead || { _id: result.leadId } },
@@ -259,6 +269,22 @@ const updateLead = asyncHandler(async (req, res, next) => {
       { new: true },
     );
 
+    // Build change context for field-change triggers
+    const changes = {};
+    for (const [field, newVal] of Object.entries(updates)) {
+      changes[field] = { old: lead[field], new: newVal };
+    }
+
+    // Fire CRM event bus (v1 + v2 workflows)
+    emitCrmEvent({
+      tenantId: req.user.tenantId,
+      module: "lead",
+      triggerType: "on_update",
+      entity: updatedLead?.toObject?.() || updatedLead,
+      changes,
+      user: req.user,
+    });
+
     successResponse(res, updatedLead, "Lead updated successfully");
   } catch (error) {
     next(error);
@@ -297,6 +323,16 @@ const updateLeadStatus = asyncHandler(async (req, res, next) => {
       requestId: req.requestId,
       ipAddress: req.ip,
       userAgent: req.get("User-Agent"),
+    });
+
+    // Fire CRM event bus — status is a "stage change" equivalent for leads
+    emitCrmEvent({
+      tenantId: req.user.tenantId,
+      module: "lead",
+      triggerType: "on_stage_change",
+      entity: updatedLead?.toObject?.() || updatedLead,
+      changes: { status: { old: undefined, new: status } },
+      user: req.user,
     });
 
     successResponse(res, updatedLead, "Lead status updated");

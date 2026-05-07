@@ -6,6 +6,7 @@ import activityRoutes from "./activityRoutes.js";
 import pipelineRoutes from "./pipelineRoutes.js";
 import leadConversionRoutes from "./leadConversionRoutes.js";
 import workflowRoutes from "./workflowRoutes.js";
+import workflowV2Routes from "./workflowV2Routes.js";
 import blueprintRoutes from "./blueprintRoutes.js";
 import analyticsRoutes from "./analyticsRoutes.js";
 import customModuleRoutes from "./customModuleRoutes.js";
@@ -22,6 +23,7 @@ router.use("/activities", activityRoutes);
 router.use("/pipelines", pipelineRoutes);
 router.use("/leads", leadConversionRoutes);
 router.use("/workflows", workflowRoutes);
+router.use("/workflows/v2", workflowV2Routes);
 router.use("/blueprints", blueprintRoutes);
 router.use("/analytics", analyticsRoutes);
 
