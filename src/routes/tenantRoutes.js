@@ -9,6 +9,7 @@ import {
   updateTenantById,
   updateTenantCompanyLogo,
 } from "../controllers/tenantController.js";
+import { getTenantUsage } from "../controllers/usageController.js";
 import { protect, adminOnly } from "../middlewares/auth.js";
 import { validate, commonValidations } from "../utils/validators.js";
 import { bootstrapLimiter } from "../middlewares/rateLimiter.js";
@@ -80,6 +81,11 @@ router.use(protect, adminOnly);
 
 router.get("/", getTenants);
 router.get("/:id", [commonValidations.mongoId("id"), validate], getTenantById);
+router.get(
+  "/:id/usage",
+  [commonValidations.mongoId("id"), validate],
+  getTenantUsage,
+);
 router.put(
   "/:id",
   [

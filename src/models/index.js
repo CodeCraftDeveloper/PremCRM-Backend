@@ -27,6 +27,17 @@ export { default as Registration } from "./Registration.js";
 export { default as CheckIn } from "./CheckIn.js";
 export { default as Blog } from "./Blog.js";
 
+// Workflow v2 (graph automation) — supersedes legacy AutomationRule.
+// v1 keeps running until P3-003 moves execution onto the workflow.execute
+// BullMQ queue. See docs/orbinest-brain/EXECUTION_ROADMAP.md Phase 3.
+export { default as Workflow, NODE_TYPES } from "./Workflow.js";
+export {
+  default as WorkflowRun,
+  NODE_RUN_STATUSES,
+  RUN_STATUSES,
+  TRIGGER_ENTITY_TYPES,
+} from "./WorkflowRun.js";
+
 // CRM domain models
 export {
   Contact,

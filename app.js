@@ -27,6 +27,7 @@ import {
   publicEventRoutes,
   eventRegistrationRoutes,
   blogRoutes,
+  queueRoutes,
 } from "./src/routes/index.js";
 import crmRoutes from "./src/routes/crm/index.js";
 
@@ -381,6 +382,7 @@ app.use("/api/v1/tickets", ticketRoutes);
 app.use("/api/v1/files", fileRoutes);
 app.use("/api/v1/blogs", blogRoutes);
 app.use("/api/v1/crm", crmRoutes);
+app.use("/api/v1/queues", queueRoutes);
 
 // Backward-compat: /api/* → same handlers (no redirect, no duplication)
 app.use("/api/auth", authRoutes);
@@ -402,6 +404,7 @@ app.use("/api/tickets", ticketRoutes);
 app.use("/api/files", fileRoutes);
 app.use("/api/blogs", blogRoutes);
 app.use("/api/crm", crmRoutes);
+app.use("/api/queues", queueRoutes);
 
 // =====================
 // API Documentation

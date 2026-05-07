@@ -11,6 +11,7 @@ validateEnv(); // throws if critical vars are missing
 import app from "./app.js";
 import connectDB from "./src/config/db.js";
 import { initRedis, getRedisClient } from "./src/config/redis.js";
+import { initQueues, closeQueues } from "./src/queue/index.js";
 import { initializeSocketServer } from "./src/socket/index.js";
 import logger from "./src/utils/logger.js";
 
@@ -46,7 +47,15 @@ const gracefulShutdown = (signal, server) => {
     }
 
     try {
-      // 3. Close Redis (if connected)
+      // 3. Close BullMQ queues + ioredis connection (if any)
+      await closeQueues();
+      logger.info("BullMQ queues closed");
+    } catch (e) {
+      logger.error(`Error closing BullMQ: ${e.message}`);
+    }
+
+    try {
+      // 4. Close Redis (if connected)
       const client = getRedisClient();
       if (client) {
         await client.quit();
@@ -80,6 +89,14 @@ const startServer = async () => {
       logger.info("Redis initialized");
     } catch (redisError) {
       logger.warn("Redis connection failed - continuing without cache");
+    }
+
+    // Initialize BullMQ queue handles. The API process only enqueues —
+    // workers run in `worker.js`. Safe no-op when REDIS_URL is unset.
+    try {
+      initQueues();
+    } catch (queueError) {
+      logger.warn(`BullMQ init failed: ${queueError.message}`);
     }
 
     // Start Express server with Socket.IO

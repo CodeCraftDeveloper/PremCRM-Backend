@@ -17,3 +17,4 @@ export { default as fileRoutes } from "./fileRoutes.js";
 export { default as publicEventRoutes } from "./publicEventRoutes.js";
 export { default as eventRegistrationRoutes } from "./eventRegistrationRoutes.js";
 export { default as blogRoutes } from "./blogRoutes.js";
+export { default as queueRoutes } from "./queueRoutes.js";
