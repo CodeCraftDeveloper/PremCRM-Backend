@@ -56,3 +56,19 @@ export {
   ModuleLayout,
   FormDefinition,
 } from "./crm/index.js";
+
+// Unified Inbox domain models
+export {
+  ChannelAccount,
+  CHANNEL_PROVIDERS,
+  CHANNEL_ACCOUNT_STATUSES,
+  ContactIdentity,
+  IDENTITY_PROVIDERS,
+  Conversation,
+  CONVERSATION_STATUSES,
+  CONVERSATION_CHANNELS,
+  Message,
+  MESSAGE_DIRECTIONS,
+  MESSAGE_STATUSES,
+  MESSAGE_CONTENT_TYPES,
+} from "./inbox/index.js";
