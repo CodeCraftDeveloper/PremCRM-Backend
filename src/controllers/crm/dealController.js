@@ -5,7 +5,7 @@ import {
   paginatedResponse,
 } from "../../utils/apiResponse.js";
 import { DealService } from "../../core/crm/index.js";
-import { WorkflowEngine } from "../../core/crm/index.js";
+import { emitCrmEvent } from "../../services/workflow/index.js";
 import { filterCustomDataByRole } from "../../core/crm/customDataHelper.js";
 
 const enrichUser = (req) => ({
@@ -98,8 +98,8 @@ export const createDeal = asyncHandler(async (req, res, next) => {
     const user = enrichUser(req);
     const deal = await DealService.create(req.user.tenantId, req.body, user);
 
-    // Fire workflow
-    WorkflowEngine.fire({
+    // Fire v1 + v2 workflows via event bus
+    emitCrmEvent({
       tenantId: req.user.tenantId,
       module: "deal",
       triggerType: "on_create",
@@ -127,7 +127,7 @@ export const updateDeal = asyncHandler(async (req, res, next) => {
     );
     if (!deal) return next(ApiError.notFound("Deal not found"));
 
-    WorkflowEngine.fire({
+    emitCrmEvent({
       tenantId: req.user.tenantId,
       module: "deal",
       triggerType: "on_update",
@@ -164,8 +164,8 @@ export const changeDealStage = asyncHandler(async (req, res, next) => {
       user,
     );
 
-    // Fire stage-change workflow
-    WorkflowEngine.fire({
+    // Fire stage-change workflow (v1 + v2)
+    emitCrmEvent({
       tenantId: req.user.tenantId,
       module: "deal",
       triggerType: "on_stage_change",

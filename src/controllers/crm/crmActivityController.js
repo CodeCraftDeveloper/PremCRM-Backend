@@ -5,6 +5,7 @@ import {
   paginatedResponse,
 } from "../../utils/apiResponse.js";
 import { CrmActivityService } from "../../core/crm/index.js";
+import { emitCrmEvent } from "../../services/workflow/index.js";
 import { filterCustomDataByRole } from "../../core/crm/customDataHelper.js";
 
 const enrichUser = (req) => ({
@@ -134,6 +135,16 @@ export const createActivity = asyncHandler(async (req, res, next) => {
       req.body,
       enrichUser(req),
     );
+
+    // Fire v1 + v2 workflows via event bus
+    emitCrmEvent({
+      tenantId: req.user.tenantId,
+      module: "activity",
+      triggerType: "on_create",
+      entity: activity.toObject ? activity.toObject() : activity,
+      user: enrichUser(req),
+    });
+
     successResponse(res, activity, "Activity created", 201);
   } catch (error) {
     next(error);
@@ -152,6 +163,16 @@ export const updateActivity = asyncHandler(async (req, res, next) => {
       enrichUser(req),
     );
     if (!activity) return next(ApiError.notFound("Activity not found"));
+
+    // Fire v1 + v2 workflows via event bus
+    emitCrmEvent({
+      tenantId: req.user.tenantId,
+      module: "activity",
+      triggerType: "on_update",
+      entity: activity.toObject ? activity.toObject() : activity,
+      user: enrichUser(req),
+    });
+
     successResponse(res, activity, "Activity updated");
   } catch (error) {
     next(error);

@@ -5,6 +5,7 @@ import {
   paginatedResponse,
 } from "../../utils/apiResponse.js";
 import { AccountService } from "../../core/crm/index.js";
+import { emitCrmEvent } from "../../services/workflow/index.js";
 import { filterCustomDataByRole } from "../../core/crm/customDataHelper.js";
 
 const enrichUser = (req) => ({
@@ -96,6 +97,16 @@ export const createAccount = asyncHandler(async (req, res, next) => {
       req.body,
       enrichUser(req),
     );
+
+    // Fire v1 + v2 workflows via event bus
+    emitCrmEvent({
+      tenantId: req.user.tenantId,
+      module: "account",
+      triggerType: "on_create",
+      entity: account.toObject ? account.toObject() : account,
+      user: enrichUser(req),
+    });
+
     successResponse(res, account, "Account created", 201);
   } catch (error) {
     next(error);
@@ -114,6 +125,16 @@ export const updateAccount = asyncHandler(async (req, res, next) => {
       enrichUser(req),
     );
     if (!account) return next(ApiError.notFound("Account not found"));
+
+    // Fire v1 + v2 workflows via event bus
+    emitCrmEvent({
+      tenantId: req.user.tenantId,
+      module: "account",
+      triggerType: "on_update",
+      entity: account.toObject ? account.toObject() : account,
+      user: enrichUser(req),
+    });
+
     successResponse(res, account, "Account updated");
   } catch (error) {
     next(error);

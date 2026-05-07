@@ -5,6 +5,7 @@ import {
   paginatedResponse,
 } from "../../utils/apiResponse.js";
 import { ContactService } from "../../core/crm/index.js";
+import { emitCrmEvent } from "../../services/workflow/index.js";
 import { filterCustomDataByRole } from "../../core/crm/customDataHelper.js";
 
 /** Helper: enrich user obj with request metadata */
@@ -100,6 +101,16 @@ export const createContact = asyncHandler(async (req, res, next) => {
       req.body,
       enrichUser(req),
     );
+
+    // Fire v1 + v2 workflows via event bus
+    emitCrmEvent({
+      tenantId: req.user.tenantId,
+      module: "contact",
+      triggerType: "on_create",
+      entity: contact.toObject ? contact.toObject() : contact,
+      user: enrichUser(req),
+    });
+
     successResponse(res, contact, "Contact created", 201);
   } catch (error) {
     next(error);
@@ -119,6 +130,16 @@ export const updateContact = asyncHandler(async (req, res, next) => {
       enrichUser(req),
     );
     if (!contact) return next(ApiError.notFound("Contact not found"));
+
+    // Fire v1 + v2 workflows via event bus
+    emitCrmEvent({
+      tenantId: req.user.tenantId,
+      module: "contact",
+      triggerType: "on_update",
+      entity: contact.toObject ? contact.toObject() : contact,
+      user: enrichUser(req),
+    });
+
     successResponse(res, contact, "Contact updated");
   } catch (error) {
     next(error);

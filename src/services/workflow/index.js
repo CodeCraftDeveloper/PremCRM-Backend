@@ -26,3 +26,9 @@ export {
   hasExecutor,
   listExecutors,
 } from "./nodeExecutors.js";
+
+export {
+  emitCrmEvent,
+  emitCrmEventSync,
+  buildTriggerSubtype,
+} from "./crmEventBus.js";
