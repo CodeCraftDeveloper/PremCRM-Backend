@@ -38,6 +38,7 @@ export const APPROVAL_RELATED_ENTITY_TYPES = Object.freeze([
   "review_reply",
   "social_post",
   "ai_run",
+  "content_draft",
 ]);
 
 const approvalRequestSchema = new mongoose.Schema(

@@ -3,7 +3,47 @@ import ContactIdentity from "../models/inbox/ContactIdentity.js";
 import Conversation from "../models/inbox/Conversation.js";
 import Message from "../models/inbox/Message.js";
 import IntegrationEvent from "../models/IntegrationEvent.js";
+import { enqueue, QUEUE_NAMES } from "../queue/index.js";
+import { WHATSAPP_MEDIA_DOWNLOAD_JOB_NAME } from "./whatsappMediaService.js";
 import { ApiError } from "../utils/apiResponse.js";
+import logger from "../utils/logger.js";
+
+const MEDIA_CONTENT_TYPES = new Set(["image", "video", "audio", "document"]);
+
+async function enqueueMediaDownloadsForMessage({
+  tenantId,
+  channelAccountId,
+  message,
+}) {
+  if (!message || !MEDIA_CONTENT_TYPES.has(message.contentType)) return;
+  const attachments = Array.isArray(message.attachments)
+    ? message.attachments
+    : [];
+  for (let i = 0; i < attachments.length; i += 1) {
+    const att = attachments[i];
+    if (!att?.providerMediaId || att.storageKey) continue;
+    try {
+      await enqueue(
+        QUEUE_NAMES.WHATSAPP_MESSAGES,
+        WHATSAPP_MEDIA_DOWNLOAD_JOB_NAME,
+        {
+          tenantId: String(tenantId),
+          messageId: String(message._id),
+          channelAccountId: String(channelAccountId),
+          attachmentIndex: i,
+          providerMediaId: att.providerMediaId,
+        },
+        { idempotencyKey: `whatsapp.media:${att.providerMediaId}` },
+      );
+    } catch (err) {
+      logger.error(
+        `[WhatsappSync] failed to enqueue media download for ${att.providerMediaId}: ${
+          err?.message || err
+        }`,
+      );
+    }
+  }
+}
 
 function normalizeWhatsappIdentifier(value) {
   if (!value) return null;
@@ -250,6 +290,12 @@ async function importWhatsappMessage({ tenantId, channelAccountId, payload }) {
       },
     );
 
+    await enqueueMediaDownloadsForMessage({
+      tenantId,
+      channelAccountId,
+      message: created,
+    });
+
     return { created: true, message: created };
   } catch (err) {
     if (err?.code === 11000) {
@@ -308,6 +354,7 @@ async function processWhatsappIntegrationEvent({ tenantId, integrationEventId })
 }
 
 export const WhatsappMessageSyncService = {
+  enqueueMediaDownloadsForMessage,
   importWhatsappMessage,
   mapContent,
   normalizeWhatsappIdentifier,

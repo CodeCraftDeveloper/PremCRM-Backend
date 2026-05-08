@@ -1,4 +1,6 @@
 import crypto from "crypto";
+import mongoose from "mongoose";
+import AuditLog from "../models/AuditLog.js";
 import ChannelAccount from "../models/inbox/ChannelAccount.js";
 import IntegrationEvent from "../models/IntegrationEvent.js";
 import { enqueue, QUEUE_NAMES } from "../queue/index.js";
@@ -35,6 +37,114 @@ function normalizeDisplayPhoneNumber(value) {
     throw ApiError.badRequest("displayPhoneNumber is too long");
   }
   return trimmed;
+}
+
+function sanitizeAccount(account) {
+  const doc = typeof account?.toObject === "function" ? account.toObject() : account;
+  if (!doc) return null;
+  delete doc.credentials;
+  return doc;
+}
+
+function decryptWhatsappCredentials(account) {
+  if (!account?.credentials) return null;
+  return TokenVaultService.decryptJson("whatsapp", account.credentials, {
+    tenantId: account.tenantId,
+  });
+}
+
+function normalizeGraphMetadata(payload = {}) {
+  return {
+    qualityRating: payload.quality_rating || null,
+    messagingLimitTier:
+      payload.messaging_limit_tier || payload.messaging_limit || null,
+    status: payload.status || null,
+    nameStatus: payload.name_status || null,
+    displayPhoneNumber: payload.display_phone_number || null,
+    verifiedName: payload.verified_name || null,
+    fetchedAt: new Date().toISOString(),
+  };
+}
+
+function graphErrorMessage(payload, fallback) {
+  return (
+    payload?.error?.error_user_msg ||
+    payload?.error?.message ||
+    payload?.message ||
+    fallback
+  );
+}
+
+function isRateLimitGraphError(status, payload = {}) {
+  const code = payload?.error?.code;
+  return status === 429 || code === 4 || code === 17 || code === 32 || code === 613;
+}
+
+async function fetchWhatsappPhoneNumberMetadata(account) {
+  if (!account?.credentials) {
+    return {
+      available: false,
+      error: "WhatsApp account credentials are missing",
+      rateLimited: false,
+    };
+  }
+
+  const credentials = decryptWhatsappCredentials(account);
+  const accessToken = normalizeToken(credentials?.accessToken);
+  const phoneNumberId =
+    account.providerMeta?.whatsapp?.phoneNumberId ||
+    credentials?.phoneNumberId ||
+    account.providerAccountId;
+  const graphVersion =
+    credentials?.graphVersion ||
+    account.providerMeta?.whatsapp?.graphVersion ||
+    GRAPH_VERSION;
+
+  if (!accessToken) {
+    return {
+      available: false,
+      error: "WhatsApp access token is missing",
+      rateLimited: false,
+    };
+  }
+
+  const fields = [
+    "quality_rating",
+    "messaging_limit_tier",
+    "status",
+    "name_status",
+    "display_phone_number",
+    "verified_name",
+  ].join(",");
+  const url = `https://graph.facebook.com/${graphVersion}/${phoneNumberId}?fields=${encodeURIComponent(fields)}`;
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    return {
+      available: false,
+      error: graphErrorMessage(
+        payload,
+        `WhatsApp phone-number metadata fetch failed (HTTP ${response.status})`,
+      ),
+      statusCode: response.status,
+      rateLimited: isRateLimitGraphError(response.status, payload),
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+
+  return {
+    available: true,
+    ...normalizeGraphMetadata(payload),
+    raw: {
+      quality_rating: payload.quality_rating,
+      messaging_limit_tier: payload.messaging_limit_tier,
+      messaging_limit: payload.messaging_limit,
+    },
+    rateLimited: false,
+  };
 }
 
 function verifyWebhookChallenge(query = {}) {
@@ -248,6 +358,86 @@ async function getWhatsappAccount(tenantId, accountId) {
   return account;
 }
 
+async function getLatestWhatsappFailures(tenantId, accountId, limit = 5) {
+  return IntegrationEvent.find({
+    tenantId,
+    provider: "whatsapp",
+    channelAccountId: accountId,
+    status: { $in: ["failed", "skipped"] },
+  })
+    .sort({ createdAt: -1 })
+    .limit(Math.min(Math.max(Number(limit) || 5, 1), 10))
+    .select(
+      "_id eventType externalEventId status statusReason enqueuedJobId createdAt updatedAt processedAt",
+    )
+    .lean();
+}
+
+async function buildWhatsappAccountHealth(account, { includeProvider = true } = {}) {
+  const failures = await getLatestWhatsappFailures(
+    account.tenantId,
+    account._id,
+  );
+  let providerHealth = {
+    available: false,
+    skipped: true,
+    reason: "provider-fetch-disabled",
+  };
+
+  if (includeProvider) {
+    try {
+      providerHealth = await fetchWhatsappPhoneNumberMetadata(account);
+    } catch (err) {
+      providerHealth = {
+        available: false,
+        error: err?.message || "WhatsApp phone-number metadata fetch failed",
+        rateLimited: false,
+        fetchedAt: new Date().toISOString(),
+      };
+    }
+  }
+
+  return {
+    account: sanitizeAccount(account),
+    status: account.status,
+    consecutiveErrors: account.consecutiveErrors || 0,
+    lastError: account.lastError || null,
+    lastSyncAt: account.lastSyncAt || null,
+    providerHealth,
+    latestFailures: failures,
+    needsReconnect:
+      account.status === "error" ||
+      account.status === "disconnected" ||
+      Boolean(account.lastError) ||
+      Number(account.consecutiveErrors || 0) > 0,
+  };
+}
+
+async function listWhatsappAccountHealth(tenantId, options = {}) {
+  const accounts = await ChannelAccount.find({
+    tenantId,
+    provider: "whatsapp",
+    deletedAt: null,
+  })
+    .select("+credentials")
+    .sort({ createdAt: -1 });
+
+  return Promise.all(
+    accounts.map((account) => buildWhatsappAccountHealth(account, options)),
+  );
+}
+
+async function getWhatsappAccountHealth(tenantId, accountId, options = {}) {
+  const account = await ChannelAccount.findOne({
+    _id: accountId,
+    tenantId,
+    provider: "whatsapp",
+    deletedAt: null,
+  }).select("+credentials");
+  if (!account) throw ApiError.notFound("WhatsApp account not found");
+  return buildWhatsappAccountHealth(account, options);
+}
+
 async function listWhatsappAccounts(tenantId) {
   return ChannelAccount.find({
     tenantId,
@@ -275,6 +465,58 @@ async function disconnectWhatsappAccount(tenantId, accountId, userId) {
     { returnDocument: "after" },
   );
   if (!account) throw ApiError.notFound("WhatsApp account not found");
+  return account;
+}
+
+async function reconnectWhatsappAccount(tenantId, accountId, userId, input = {}) {
+  if (!mongoose.Types.ObjectId.isValid(accountId)) {
+    throw ApiError.badRequest("Invalid WhatsApp account id");
+  }
+
+  const existing = await ChannelAccount.findOne({
+    _id: accountId,
+    tenantId,
+    provider: "whatsapp",
+    deletedAt: null,
+  });
+  if (!existing) throw ApiError.notFound("WhatsApp account not found");
+
+  const accessToken = normalizeToken(input.accessToken);
+  if (!accessToken) throw ApiError.badRequest("accessToken is required");
+
+  const whatsappMeta = existing.providerMeta?.whatsapp || {};
+  const phoneNumberId = whatsappMeta.phoneNumberId || existing.providerAccountId;
+  const businessAccountId =
+    whatsappMeta.businessAccountId || normalizeToken(input.businessAccountId);
+  if (!businessAccountId) {
+    throw ApiError.badRequest(
+      "businessAccountId is required because the existing account is missing WhatsApp metadata",
+    );
+  }
+
+  const account = await connectWhatsappAccount(tenantId, userId, {
+    phoneNumberId,
+    businessAccountId,
+    accessToken,
+    displayName: input.displayName || existing.displayName,
+    displayPhoneNumber:
+      input.displayPhoneNumber || whatsappMeta.displayPhoneNumber || null,
+  });
+
+  AuditLog.record({
+    tenantId,
+    userId,
+    action: "whatsapp.reconnected",
+    entityType: "system",
+    entityId: account._id,
+    description: "WhatsApp account credentials were re-uploaded",
+    metadata: {
+      providerAccountId: account.providerAccountId,
+      previousStatus: existing.status,
+      previousConsecutiveErrors: existing.consecutiveErrors || 0,
+    },
+  });
+
   return account;
 }
 
@@ -411,8 +653,11 @@ export const WhatsappCloudService = {
   disconnectWhatsappAccount,
   extractWhatsappEvents,
   getWhatsappAccount,
+  getWhatsappAccountHealth,
   ingestWhatsappWebhook,
+  listWhatsappAccountHealth,
   listWhatsappAccounts,
+  reconnectWhatsappAccount,
   verifyWebhookChallenge,
   verifyWebhookSignature,
 };

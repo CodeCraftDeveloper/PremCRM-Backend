@@ -133,6 +133,58 @@ const deleteFromS3 = async (key) => {
 };
 
 /**
+ * Read a stored object from S3 into memory.
+ * @param {string} key - S3 object key
+ * @returns {Promise<{ buffer: Buffer, contentType: string|null, contentLength: number|null }>}
+ */
+const getFromS3 = async (key) => {
+  if (!key) throw new Error("getFromS3: key is required");
+  const command = new GetObjectCommand({
+    Bucket: getBucket(),
+    Key: key,
+  });
+  try {
+    const response = await getS3Client().send(command);
+    const body = response.Body;
+    if (!body) {
+      throw new Error("S3 GetObject returned an empty body");
+    }
+    let buffer;
+    if (typeof body.transformToByteArray === "function") {
+      buffer = Buffer.from(await body.transformToByteArray());
+    } else if (Buffer.isBuffer(body)) {
+      buffer = body;
+    } else if (body instanceof Uint8Array) {
+      buffer = Buffer.from(body);
+    } else if (typeof body[Symbol.asyncIterator] === "function") {
+      const chunks = [];
+      for await (const chunk of body) chunks.push(chunk);
+      buffer = Buffer.concat(chunks);
+    } else {
+      throw new Error("Unsupported S3 response body type");
+    }
+    return {
+      buffer,
+      contentType: response.ContentType || null,
+      contentLength:
+        typeof response.ContentLength === "number"
+          ? response.ContentLength
+          : buffer.length,
+    };
+  } catch (error) {
+    logger.error(`S3 download error: ${error.message}`, {
+      code: error.Code || error.name,
+      bucket: process.env.AWS_S3_BUCKET,
+      region: process.env.AWS_REGION,
+      key,
+    });
+    throw new Error(
+      `Failed to download file from S3: ${error.message || "Unknown error"}`,
+    );
+  }
+};
+
+/**
  * Get signed URL for private file access
  * @param {string} key - S3 object key
  * @param {number} expiresIn - URL expiration in seconds (default: 1 hour)
@@ -157,6 +209,7 @@ export {
   getS3Client as s3Client,
   uploadToS3,
   deleteFromS3,
+  getFromS3,
   getSignedFileUrl,
   generateUniqueFilename,
 };

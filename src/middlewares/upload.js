@@ -26,6 +26,32 @@ const ALLOWED_FILE_TYPES = {
     "application/vnd.ms-excel",
     "text/csv",
   ],
+  // WhatsApp Cloud API outbound media — images, video, audio, documents.
+  // Any further validation against the requested `mediaType` happens in
+  // `whatsappOutboundMediaService.assertMediaTypeAndMime`.
+  whatsappMedia: [
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/webp",
+    "video/mp4",
+    "video/3gpp",
+    "video/3gp",
+    "audio/aac",
+    "audio/mp4",
+    "audio/mpeg",
+    "audio/amr",
+    "audio/ogg",
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "text/plain",
+    "text/csv",
+  ],
 };
 
 const ALLOWED_EXTENSIONS = new Set([
@@ -155,6 +181,40 @@ const uploadAvatar = multer({
   fileFilter: createFileFilter(ALLOWED_FILE_TYPES.image),
 }).single("avatar");
 
+// WhatsApp media filter: validates mimetype only (extensions vary too
+// widely across video/audio formats to use the strict shared whitelist).
+const whatsappMediaFilter = (req, file, cb) => {
+  if (!ALLOWED_FILE_TYPES.whatsappMedia.includes(file.mimetype)) {
+    return cb(
+      new ApiError(
+        400,
+        `MIME type "${file.mimetype}" is not allowed for WhatsApp media`,
+      ),
+      false,
+    );
+  }
+  cb(null, true);
+};
+
+const WHATSAPP_MEDIA_MAX_FILE_SIZE =
+  parseInt(process.env.WHATSAPP_MEDIA_MAX_FILE_SIZE, 10) || 100 * 1024 * 1024;
+
+/**
+ * Upload middleware for WhatsApp outbound media. Single `file` field;
+ * up to 100MB by default (Meta's per-type limits are enforced by Cloud
+ * API).
+ */
+const uploadWhatsappMedia = multer({
+  storage: memoryStorage,
+  limits: {
+    fileSize: WHATSAPP_MEDIA_MAX_FILE_SIZE,
+    files: 1,
+    fields: MAX_FORM_FIELDS,
+    fieldSize: MAX_FORM_FIELD_SIZE,
+  },
+  fileFilter: whatsappMediaFilter,
+}).single("file");
+
 /**
  * Upload middleware for company logo
  */
@@ -203,7 +263,9 @@ export {
   uploadLeadAttachments,
   uploadAvatar,
   uploadCompanyLogo,
+  uploadWhatsappMedia,
   handleUploadError,
   ALLOWED_FILE_TYPES,
   MAX_FILE_SIZE,
+  WHATSAPP_MEDIA_MAX_FILE_SIZE,
 };

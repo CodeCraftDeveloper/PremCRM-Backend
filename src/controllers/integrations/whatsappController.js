@@ -29,6 +29,29 @@ export const getWhatsappAccount = asyncHandler(async (req, res, next) => {
   }
 });
 
+export const listWhatsappAccountHealth = asyncHandler(async (req, res, next) => {
+  try {
+    const health = await WhatsappCloudService.listWhatsappAccountHealth(
+      req.user.tenantId,
+    );
+    successResponse(res, health, "WhatsApp account health loaded");
+  } catch (error) {
+    next(error);
+  }
+});
+
+export const getWhatsappAccountHealth = asyncHandler(async (req, res, next) => {
+  try {
+    const health = await WhatsappCloudService.getWhatsappAccountHealth(
+      req.user.tenantId,
+      req.params.id,
+    );
+    successResponse(res, health, "WhatsApp account health loaded");
+  } catch (error) {
+    next(error);
+  }
+});
+
 export const connectWhatsappAccount = asyncHandler(async (req, res, next) => {
   try {
     const account = await WhatsappCloudService.connectWhatsappAccount(
@@ -37,6 +60,20 @@ export const connectWhatsappAccount = asyncHandler(async (req, res, next) => {
       req.body,
     );
     successResponse(res, account, "WhatsApp account connected", 201);
+  } catch (error) {
+    next(error);
+  }
+});
+
+export const reconnectWhatsappAccount = asyncHandler(async (req, res, next) => {
+  try {
+    const account = await WhatsappCloudService.reconnectWhatsappAccount(
+      req.user.tenantId,
+      req.params.id,
+      req.user._id,
+      req.body,
+    );
+    successResponse(res, account, "WhatsApp account reconnected");
   } catch (error) {
     next(error);
   }

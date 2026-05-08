@@ -90,7 +90,7 @@ async function createWhatsappAccount(tenant, user, overrides = {}) {
 }
 
 async function createWhatsappConversation(tenant, account, overrides = {}) {
-  return Conversation.create({
+  const conversation = await Conversation.create({
     tenantId: tenant._id,
     channelAccountId: account._id,
     channel: "whatsapp",
@@ -99,6 +99,23 @@ async function createWhatsappConversation(tenant, account, overrides = {}) {
     status: "open",
     ...overrides,
   });
+  // Seed a recent inbound message so the 24h customer-service window
+  // is open by default. Tests that need a closed window override.
+  if (overrides.skipInbound !== true) {
+    await Message.create({
+      tenantId: tenant._id,
+      conversationId: conversation._id,
+      channelAccountId: account._id,
+      channel: "whatsapp",
+      direction: "inbound",
+      status: "sent",
+      contentType: "text",
+      body: "Hi there",
+      providerMessageId: `wamid.in-${conversation._id}`,
+      providerTimestamp: new Date(),
+    });
+  }
+  return conversation;
 }
 
 beforeAll(async () => {

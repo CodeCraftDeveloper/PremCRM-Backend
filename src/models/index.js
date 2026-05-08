@@ -39,6 +39,43 @@ export {
   APPROVAL_RELATED_ENTITY_TYPES,
 } from "./ApprovalRequest.js";
 
+export {
+  default as GmbLocation,
+  GMB_LOCATION_STATUSES,
+  GMB_LOCATION_VERIFICATION_STATUSES,
+} from "./GmbLocation.js";
+export {
+  default as Review,
+  REVIEW_PROVIDERS,
+  REVIEW_STAR_RATINGS,
+  REVIEW_SENTIMENTS,
+  REVIEW_STATUSES,
+} from "./Review.js";
+export {
+  default as ReviewReplyDraft,
+  REVIEW_REPLY_DRAFT_STATUSES,
+  REVIEW_REPLY_DRAFT_SOURCES,
+} from "./ReviewReplyDraft.js";
+
+// AI orchestration foundation (Phase 7) — see CTO_BLUEPRINT §AI Contract.
+export {
+  default as AIRun,
+  AI_RUN_STATUSES,
+  AI_MODEL_PROVIDERS,
+} from "./AIRun.js";
+export {
+  default as PromptTemplate,
+  PROMPT_TEMPLATE_STATUSES,
+  PROMPT_TEMPLATE_CATEGORIES,
+} from "./PromptTemplate.js";
+export { default as BrandProfile } from "./BrandProfile.js";
+export {
+  default as ContentDraft,
+  CONTENT_DRAFT_STATUSES,
+  CONTENT_DRAFT_CONTENT_TYPES,
+  CONTENT_DRAFT_CHANNELS,
+} from "./ContentDraft.js";
+
 // Workflow v2 (graph automation) — supersedes legacy AutomationRule.
 // v1 keeps running until P3-003 moves execution onto the workflow.execute
 // BullMQ queue. See docs/orbinest-brain/EXECUTION_ROADMAP.md Phase 3.
@@ -83,4 +120,8 @@ export {
   MESSAGE_DIRECTIONS,
   MESSAGE_STATUSES,
   MESSAGE_CONTENT_TYPES,
+  WhatsappTemplate,
+  WHATSAPP_TEMPLATE_CATEGORIES,
+  WHATSAPP_TEMPLATE_STATUSES,
+  WHATSAPP_TEMPLATE_COMPONENT_TYPES,
 } from "./inbox/index.js";

@@ -6,8 +6,11 @@ import {
   connectWhatsappAccount,
   disconnectWhatsappAccount,
   getWhatsappAccount,
+  getWhatsappAccountHealth,
   handleWhatsappWebhook,
+  listWhatsappAccountHealth,
   listWhatsappAccounts,
+  reconnectWhatsappAccount,
   verifyWhatsappWebhook,
 } from "../../controllers/integrations/whatsappController.js";
 
@@ -22,7 +25,10 @@ router.use(authorize("admin", "superadmin"));
 
 router.get("/accounts", listWhatsappAccounts);
 router.post("/accounts", connectWhatsappAccount);
+router.get("/accounts/health", listWhatsappAccountHealth);
 router.get("/accounts/:id", validateMongoId(), getWhatsappAccount);
+router.get("/accounts/:id/health", validateMongoId(), getWhatsappAccountHealth);
+router.post("/accounts/:id/reconnect", validateMongoId(), reconnectWhatsappAccount);
 router.delete("/accounts/:id", validateMongoId(), disconnectWhatsappAccount);
 
 export default router;

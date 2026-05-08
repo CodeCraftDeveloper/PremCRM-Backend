@@ -7,6 +7,8 @@ import { processWorkflowExecute } from "./processors/workflowExecuteProcessor.js
 import { processInboundWebhook } from "./processors/inboundWebhookProcessor.js";
 import { processGmailSync } from "./processors/gmailSyncProcessor.js";
 import { processWhatsappMessage } from "./processors/whatsappMessageProcessor.js";
+import { processAiDraft } from "./processors/aiDraftProcessor.js";
+import { processGmbReviews } from "./processors/gmbReviewProcessor.js";
 import {
   isTerminalFailure,
   recordFailedJob,
@@ -28,6 +30,8 @@ export const PROCESSORS = Object.freeze({
   [QUEUE_NAMES.INBOUND_WEBHOOKS]: processInboundWebhook,
   [QUEUE_NAMES.GMAIL_SYNC]: processGmailSync,
   [QUEUE_NAMES.WHATSAPP_MESSAGES]: processWhatsappMessage,
+  [QUEUE_NAMES.AI_DRAFT]: processAiDraft,
+  [QUEUE_NAMES.GMB_REVIEWS]: processGmbReviews,
 });
 
 const DEFAULT_CONCURRENCY = Number(process.env.WORKER_CONCURRENCY) || 5;

@@ -22,3 +22,10 @@ export {
   MESSAGE_STATUSES,
   MESSAGE_CONTENT_TYPES,
 } from "./Message.js";
+
+export {
+  default as WhatsappTemplate,
+  WHATSAPP_TEMPLATE_CATEGORIES,
+  WHATSAPP_TEMPLATE_STATUSES,
+  WHATSAPP_TEMPLATE_COMPONENT_TYPES,
+} from "./WhatsappTemplate.js";

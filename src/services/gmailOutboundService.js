@@ -196,14 +196,10 @@ async function getFreshAccessToken(tenantId, channelAccountId) {
  * Lifecycle:
  *   - Always creates `Message` with status="pending" and a generated
  *     idempotency key persisted on `providerMeta.gmail.idempotencyKey`.
- *   - Always creates an `ApprovalRequest`.  Status is `pending` for AI
- *     drafts and human drafts that did not request auto-approval; status
- *     is `auto_approved` when the human author opts in (`autoApprove:true`)
- *     and the draft is not AI-generated.
- *   - When `autoApprove` short-circuits the queue, returns `enqueued:false`
- *     and the caller should call `approveDraft` immediately to enqueue.
- *     Tests and controllers do that explicitly so the audit trail is
- *     uniform.
+ *   - Always creates an `ApprovalRequest` with status="pending".
+ *   - Human auto-approval is intentionally handled by the controller after
+ *     compose via `approveDraft({ autoApprove:true })`, so draft persistence
+ *     and queue enqueueing keep one auditable path.
  *
  * Returns `{message, approvalRequest}`.
  */

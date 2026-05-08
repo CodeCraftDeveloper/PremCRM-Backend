@@ -81,11 +81,11 @@ export const createGmailDraft = asyncHandler(async (req, res, next) => {
 /**
  * @route   GET /api/v1/inbox/gmail/approvals
  * @desc    List Gmail approval requests for the tenant.
- *          Query: { status?, page?, limit? }
+ *          Query: { status?, conversationId?, page?, limit? }
  */
 export const listGmailApprovals = asyncHandler(async (req, res, next) => {
   try {
-    const { status, page, limit } = req.query;
+    const { status, conversationId, page, limit } = req.query;
     const pg = Math.max(parseInt(page) || 1, 1);
     const lim = Math.min(Math.max(parseInt(limit) || 20, 1), 100);
     const filter = {
@@ -93,6 +93,7 @@ export const listGmailApprovals = asyncHandler(async (req, res, next) => {
       type: "gmail.send",
     };
     if (status) filter.status = status;
+    if (conversationId) filter["metadata.conversationId"] = String(conversationId);
 
     const [approvals, totalDocs] = await Promise.all([
       ApprovalRequest.find(filter)

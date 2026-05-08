@@ -36,6 +36,8 @@ import whatsappOutboundRoutes from "./src/routes/inbox/whatsappOutboundRoutes.js
 import googleIntegrationRoutes from "./src/routes/integrations/googleRoutes.js";
 import googlePubsubRoutes from "./src/routes/integrations/googlePubsubRoutes.js";
 import whatsappIntegrationRoutes from "./src/routes/integrations/whatsappRoutes.js";
+import aiSocialRoutes from "./src/routes/ai/aiSocialRoutes.js";
+import gmbIntegrationRoutes from "./src/routes/integrations/gmbRoutes.js";
 
 // Import middlewares
 import { errorHandler, notFound } from "./src/middlewares/error.js";
@@ -407,6 +409,8 @@ app.use("/api/v1/inbox/whatsapp", whatsappOutboundRoutes);
 app.use("/api/v1/integrations/google/pubsub", googlePubsubRoutes);
 app.use("/api/v1/integrations/google", googleIntegrationRoutes);
 app.use("/api/v1/integrations/whatsapp", whatsappIntegrationRoutes);
+app.use("/api/v1/integrations/gmb", gmbIntegrationRoutes);
+app.use("/api/v1/ai/social", aiSocialRoutes);
 app.use("/api/v1/queues", queueRoutes);
 
 // Backward-compat: /api/* → same handlers (no redirect, no duplication)
@@ -435,6 +439,8 @@ app.use("/api/inbox/whatsapp", whatsappOutboundRoutes);
 app.use("/api/integrations/google/pubsub", googlePubsubRoutes);
 app.use("/api/integrations/google", googleIntegrationRoutes);
 app.use("/api/integrations/whatsapp", whatsappIntegrationRoutes);
+app.use("/api/integrations/gmb", gmbIntegrationRoutes);
+app.use("/api/ai/social", aiSocialRoutes);
 app.use("/api/queues", queueRoutes);
 
 // =====================
@@ -666,13 +672,27 @@ app.get("/api", (req, res) => {
         },
         whatsapp: {
           "POST /api/v1/inbox/whatsapp/conversations/:conversationId/draft":
-            "Compose a WhatsApp outbound draft (admin/marketing)",
+            "Compose a WhatsApp freeform outbound draft (admin/marketing); requires open 24h window",
+          "POST /api/v1/inbox/whatsapp/conversations/:conversationId/media-draft":
+            "Upload + compose a WhatsApp media (image/video/audio/document) outbound draft (admin/marketing); requires open 24h window. Accepts multipart `file` or JSON `storageKey`.",
+          "POST /api/v1/inbox/whatsapp/conversations/:conversationId/template-draft":
+            "Compose a WhatsApp template outbound draft (admin/marketing); bypasses 24h window",
+          "GET /api/v1/inbox/whatsapp/conversations/:conversationId/window":
+            "Get the WhatsApp 24h customer-service window status (admin/marketing)",
           "GET /api/v1/inbox/whatsapp/approvals":
             "List WhatsApp approval requests (admin/marketing)",
           "POST /api/v1/inbox/whatsapp/approvals/:id/approve":
             "Approve a pending WhatsApp draft and queue the send (Admin)",
           "POST /api/v1/inbox/whatsapp/approvals/:id/reject":
             "Reject a pending WhatsApp draft (Admin)",
+          "GET /api/v1/inbox/whatsapp/templates":
+            "List tenant-scoped WhatsApp templates (admin/marketing)",
+          "POST /api/v1/inbox/whatsapp/templates":
+            "Register or update a WhatsApp template (Admin)",
+          "GET /api/v1/inbox/whatsapp/templates/:id":
+            "Get a WhatsApp template (admin/marketing)",
+          "DELETE /api/v1/inbox/whatsapp/templates/:id":
+            "Soft-delete a WhatsApp template (Admin)",
         },
       },
       integrations: {
@@ -697,10 +717,16 @@ app.get("/api", (req, res) => {
             "Public WhatsApp webhook receiver",
           "GET /api/v1/integrations/whatsapp/accounts":
             "List connected WhatsApp Cloud API accounts (Admin)",
+          "GET /api/v1/integrations/whatsapp/accounts/health":
+            "List WhatsApp account health, quality/rate metadata, and recent integration failures (Admin)",
           "POST /api/v1/integrations/whatsapp/accounts":
             "Connect or update a WhatsApp Cloud API account (Admin)",
           "GET /api/v1/integrations/whatsapp/accounts/:id":
             "Get a WhatsApp account (Admin)",
+          "GET /api/v1/integrations/whatsapp/accounts/:id/health":
+            "Get one WhatsApp account health record (Admin)",
+          "POST /api/v1/integrations/whatsapp/accounts/:id/reconnect":
+            "Reconnect a WhatsApp account by re-uploading credentials and clearing error state (Admin)",
           "DELETE /api/v1/integrations/whatsapp/accounts/:id":
             "Disconnect a WhatsApp account (Admin)",
         },

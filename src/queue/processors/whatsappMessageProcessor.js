@@ -3,7 +3,9 @@ import { WhatsappMessageSyncService } from "../../services/whatsappMessageSyncSe
 import {
   WHATSAPP_SEND_JOB_NAME,
 } from "../../services/whatsappOutboundService.js";
+import { WHATSAPP_MEDIA_DOWNLOAD_JOB_NAME } from "../../services/whatsappMediaService.js";
 import { processWhatsappSend } from "./whatsappSendProcessor.js";
+import { processWhatsappMediaDownload } from "./whatsappMediaProcessor.js";
 
 /**
  * Processor for the `whatsapp.messages` queue.
@@ -19,6 +21,9 @@ import { processWhatsappSend } from "./whatsappSendProcessor.js";
 export async function processWhatsappMessage(job) {
   if (job?.name === WHATSAPP_SEND_JOB_NAME) {
     return processWhatsappSend(job);
+  }
+  if (job?.name === WHATSAPP_MEDIA_DOWNLOAD_JOB_NAME) {
+    return processWhatsappMediaDownload(job);
   }
 
   const data = job.data || {};
