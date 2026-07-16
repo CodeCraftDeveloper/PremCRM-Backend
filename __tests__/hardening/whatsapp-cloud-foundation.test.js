@@ -143,7 +143,9 @@ async function createWhatsappAccount(tenant, user, overrides = {}) {
 }
 
 beforeAll(async () => {
-  mongoServer = await MongoMemoryServer.create();
+  mongoServer = await MongoMemoryServer.create({
+    instance: { launchTimeout: 120000 },
+  });
   await mongoose.connect(mongoServer.getUri());
 
   const appModule = await import("../../app.js");
@@ -168,13 +170,15 @@ beforeAll(async () => {
   await Conversation.syncIndexes();
   await Message.syncIndexes();
   await IntegrationEvent.syncIndexes();
-}, 30000);
+}, 180000);
 
 afterAll(async () => {
   vi.restoreAllMocks();
   await mongoose.disconnect();
-  await mongoServer.stop();
-}, 15000);
+  if (mongoServer) {
+    await mongoServer.stop();
+  }
+}, 60000);
 
 beforeEach(async () => {
   vi.restoreAllMocks();

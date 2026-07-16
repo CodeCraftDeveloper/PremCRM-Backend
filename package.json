@@ -14,7 +14,6 @@
     "dev": "nodemon index.js",
     "worker": "node worker.js",
     "worker:dev": "nodemon worker.js",
-    "seed": "node seed.js",
     "seed:demo": "node scripts/seed-demo-data.js",
     "seed:demo:reset": "node scripts/seed-demo-data.js --reset-only",
     "test": "vitest run",
