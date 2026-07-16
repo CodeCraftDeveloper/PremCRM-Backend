@@ -97,7 +97,7 @@ beforeAll(async () => {
 
   await ChannelAccount.syncIndexes();
   await IntegrationEvent.syncIndexes();
-}, 180000);
+}, 120000);
 
 afterAll(async () => {
   vi.restoreAllMocks();

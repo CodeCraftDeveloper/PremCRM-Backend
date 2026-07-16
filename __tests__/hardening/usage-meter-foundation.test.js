@@ -69,10 +69,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await mongoose.disconnect();
-  if (mongoServer) {
-    await mongoServer.stop();
-  }
-}, 60000);
+  await mongoServer.stop();
+}, 15000);
 
 beforeEach(async () => {
   const collections = mongoose.connection.collections;

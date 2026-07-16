@@ -43,9 +43,7 @@ function makeToken(userId, tenantId, role = "admin") {
 
 // ── Global setup ──
 beforeAll(async () => {
-  mongoServer = await MongoMemoryServer.create({
-    instance: { launchTimeout: 120000 },
-  });
+  mongoServer = await MongoMemoryServer.create();
   const uri = mongoServer.getUri();
   await mongoose.connect(uri);
 
@@ -64,14 +62,12 @@ beforeAll(async () => {
   LeadRemark = (await import("../../src/models/LeadRemark.js")).default;
   Client = (await import("../../src/models/Client.js")).default;
   Remark = (await import("../../src/models/Remark.js")).default;
-}, 180000);
+}, 30000);
 
 afterAll(async () => {
   await mongoose.disconnect();
-  if (mongoServer) {
-    await mongoServer.stop();
-  }
-}, 60000);
+  await mongoServer.stop();
+}, 15000);
 
 beforeEach(async () => {
   const collections = mongoose.connection.collections;

@@ -105,9 +105,7 @@ async function createGmailAccount(tenant, user, providerAccountId, overrides = {
 }
 
 beforeAll(async () => {
-  mongoServer = await MongoMemoryServer.create({
-    instance: { launchTimeout: 120000 },
-  });
+  mongoServer = await MongoMemoryServer.create();
   await mongoose.connect(mongoServer.getUri());
 
   const appModule = await import("../../app.js");
@@ -133,15 +131,13 @@ beforeAll(async () => {
 
   await ChannelAccount.syncIndexes();
   await IntegrationEvent.syncIndexes();
-}, 180000);
+}, 30000);
 
 afterAll(async () => {
   vi.unstubAllGlobals();
   await mongoose.disconnect();
-  if (mongoServer) {
-    await mongoServer.stop();
-  }
-}, 60000);
+  await mongoServer.stop();
+}, 15000);
 
 beforeEach(async () => {
   vi.restoreAllMocks();
