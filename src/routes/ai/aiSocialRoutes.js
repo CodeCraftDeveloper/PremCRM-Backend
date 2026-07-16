@@ -25,6 +25,10 @@ import {
   listSocialDrafts,
   rejectSocialDraft,
   upsertBrandProfile,
+  getSocialAnalytics,
+  listSocialTrends,
+  searchSocialTrends,
+  publishSocialPost,
 } from "../../controllers/ai/aiSocialController.js";
 
 const router = express.Router();
@@ -77,6 +81,33 @@ router.post(
   authorize("admin", "superadmin"),
   validateMongoId(),
   rejectSocialDraft,
+);
+
+// ── Analytics ───────────────────────────────────────────────────────
+router.get(
+  "/analytics",
+  authorize("admin", "superadmin", "marketing"),
+  getSocialAnalytics,
+);
+
+// ── Trends ──────────────────────────────────────────────────────────
+router.get(
+  "/trends",
+  authorize("admin", "superadmin", "marketing"),
+  listSocialTrends,
+);
+
+router.post(
+  "/trends/search",
+  authorize("admin", "superadmin", "marketing"),
+  searchSocialTrends,
+);
+
+// ── Publishing / Posts & Ads ────────────────────────────────────────
+router.post(
+  "/posts",
+  authorize("admin", "superadmin", "marketing"),
+  publishSocialPost,
 );
 
 export default router;

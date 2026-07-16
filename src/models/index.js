@@ -75,6 +75,8 @@ export {
   CONTENT_DRAFT_CONTENT_TYPES,
   CONTENT_DRAFT_CHANNELS,
 } from "./ContentDraft.js";
+export { default as SocialPost } from "./SocialPost.js";
+export { default as SocialTrend } from "./SocialTrend.js";
 
 // Workflow v2 (graph automation) — supersedes legacy AutomationRule.
 // v1 keeps running until P3-003 moves execution onto the workflow.execute

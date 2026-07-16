@@ -1,8 +1,7 @@
-import dotenv from "dotenv";
+import "dotenv/config";
 import http from "http";
 
 // Load environment variables first
-dotenv.config();
 
 // Fail-fast: validate required env vars before anything else
 import validateEnv from "./src/config/validateEnv.js";

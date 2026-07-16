@@ -203,3 +203,59 @@ export const rejectSocialDraft = asyncHandler(async (req, res, next) => {
     next(err);
   }
 });
+
+export const getSocialAnalytics = asyncHandler(async (req, res, next) => {
+  try {
+    const analytics = await AISocialContentService.getSocialAnalytics({
+      tenantId: req.user.tenantId,
+    });
+    successResponse(res, { analytics }, "Social media analytics retrieved");
+  } catch (err) {
+    next(err);
+  }
+});
+
+export const listSocialTrends = asyncHandler(async (req, res, next) => {
+  try {
+    const trends = await AISocialContentService.listTrends({
+      tenantId: req.user.tenantId,
+    });
+    successResponse(res, { trends }, "Social trends retrieved");
+  } catch (err) {
+    next(err);
+  }
+});
+
+export const searchSocialTrends = asyncHandler(async (req, res, next) => {
+  try {
+    const trends = await AISocialContentService.searchTrends({
+      tenantId: req.user.tenantId,
+      triggeredBy: req.user._id,
+    });
+    successResponse(res, { trends }, "AI Agent searched trends successfully");
+  } catch (err) {
+    next(err);
+  }
+});
+
+export const publishSocialPost = asyncHandler(async (req, res, next) => {
+  try {
+    const { draftId, variantId, channel, isAd, adConfig } = req.body || {};
+    if (!draftId || !variantId || !channel) {
+      return next(ApiError.badRequest("draftId, variantId, and channel are required"));
+    }
+    const post = await AISocialContentService.publishSocialPost({
+      tenantId: req.user.tenantId,
+      draftId,
+      variantId,
+      channel,
+      isAd: isAd === true,
+      adConfig: adConfig || null,
+      publishedBy: req.user._id,
+    });
+    successResponse(res, { post }, "Social post/ad published successfully", 201);
+  } catch (err) {
+    next(err);
+  }
+});
+

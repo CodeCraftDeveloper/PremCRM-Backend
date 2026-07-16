@@ -1,8 +1,10 @@
 import { URL, URLSearchParams } from "url";
 import ChannelAccount from "../models/inbox/ChannelAccount.js";
 import OAuthState from "../models/OAuthState.js";
+import Tenant from "../models/Tenant.js";
 import { ApiError } from "../utils/apiResponse.js";
 import { TokenVaultService } from "./tokenVaultService.js";
+import { planHasFeature, upgradeMessage } from "./planService.js";
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -17,7 +19,27 @@ const DEFAULT_GMAIL_SCOPES = Object.freeze([
   "https://www.googleapis.com/auth/gmail.send",
 ]);
 
-function getConfiguredScopes() {
+const DEFAULT_GMB_SCOPES = Object.freeze([
+  "openid",
+  "email",
+  "profile",
+  "https://www.googleapis.com/auth/business.manage",
+]);
+
+function getConfiguredScopes(provider = "gmail") {
+  if (provider === "gmb") {
+    return (process.env.GOOGLE_GMB_OAUTH_SCOPES || "")
+      .split(/[,\s]+/)
+      .map((scope) => scope.trim())
+      .filter(Boolean)
+      .length
+      ? (process.env.GOOGLE_GMB_OAUTH_SCOPES || "")
+          .split(/[,\s]+/)
+          .map((scope) => scope.trim())
+          .filter(Boolean)
+      : [...DEFAULT_GMB_SCOPES];
+  }
+
   return (process.env.GOOGLE_GMAIL_OAUTH_SCOPES || "")
     .split(/[,\s]+/)
     .map((scope) => scope.trim())
@@ -70,10 +92,10 @@ function buildFrontendRedirect(path, params) {
 async function beginGoogleOAuth(
   tenantId,
   userId,
-  { redirectAfter, requestIp } = {},
+  { redirectAfter, requestIp, provider = "gmail" } = {},
 ) {
   const config = getGoogleOAuthConfig();
-  const scopes = getConfiguredScopes();
+  const scopes = getConfiguredScopes(provider);
   const state = TokenVaultService.randomBase64Url(32);
   const codeVerifier = TokenVaultService.randomBase64Url(64);
   const codeChallenge = TokenVaultService.sha256Base64Url(codeVerifier);
@@ -83,6 +105,7 @@ async function beginGoogleOAuth(
     tenantId,
     userId,
     provider: "google",
+    targetProvider: provider,
     stateHash: TokenVaultService.hashSecret(state),
     codeVerifierEncrypted: TokenVaultService.encryptJson(
       "google_oauth_state",
@@ -181,6 +204,16 @@ async function exchangeGoogleOAuthCode(
     throw ApiError.forbidden("OAuth state user mismatch");
   }
 
+  const targetProvider = oauthState.targetProvider || "gmail";
+
+  // Check plan feature
+  const tenant = await Tenant.findById(tenantId).select("plan").lean();
+  const plan = tenant?.plan || "starter";
+  const requiredFeature = targetProvider === "gmb" ? "gmbIntegration" : "gmailIntegration";
+  if (!planHasFeature(plan, requiredFeature)) {
+    throw ApiError.forbidden(upgradeMessage(requiredFeature));
+  }
+
   const { codeVerifier } = TokenVaultService.decryptJson(
     "google_oauth_state",
     oauthState.codeVerifierEncrypted,
@@ -206,14 +239,15 @@ async function exchangeGoogleOAuthCode(
 
   const existing = await ChannelAccount.findOne({
     tenantId,
-    provider: "gmail",
+    provider: targetProvider,
     providerAccountId: email,
+    deletedAt: null,
   })
     .select("+credentials")
     .lean();
 
   const previousCredentials = existing?.credentials
-    ? TokenVaultService.decryptJson("gmail", existing.credentials, { tenantId })
+    ? TokenVaultService.decryptJson(targetProvider, existing.credentials, { tenantId })
     : {};
   const refreshToken = tokenData.refresh_token || previousCredentials.refreshToken;
 
@@ -243,15 +277,15 @@ async function exchangeGoogleOAuthCode(
   };
 
   const account = await ChannelAccount.findOneAndUpdate(
-    { tenantId, provider: "gmail", providerAccountId: email },
+    { tenantId, provider: targetProvider, providerAccountId: email },
     {
       $set: {
         tenantId,
-        provider: "gmail",
+        provider: targetProvider,
         providerAccountId: email,
         displayName: profile.name || email,
         status: "connected",
-        credentials: TokenVaultService.encryptJson("gmail", tokenPayload, {
+        credentials: TokenVaultService.encryptJson(targetProvider, tokenPayload, {
           tenantId,
         }),
         scopes,
@@ -279,7 +313,7 @@ async function exchangeGoogleOAuthCode(
   return {
     account,
     redirectUrl: buildFrontendRedirect(oauthState.redirectAfter, {
-      gmailConnected: "1",
+      [targetProvider === "gmb" ? "gmbConnected" : "gmailConnected"]: "1",
       accountId: account._id,
     }),
   };
@@ -289,29 +323,38 @@ async function getDecryptedGoogleCredentials(tenantId, channelAccountId) {
   const account = await ChannelAccount.findOne({
     _id: channelAccountId,
     tenantId,
-    provider: "gmail",
+    provider: { $in: ["gmail", "gmb"] },
     deletedAt: null,
   }).select("+credentials");
 
-  if (!account) throw ApiError.notFound("Gmail channel account not found");
-  if (!account.credentials) throw ApiError.badRequest("Gmail account has no credentials");
+  if (!account) throw ApiError.notFound("Google channel account not found");
+  if (!account.credentials) throw ApiError.badRequest("Google account has no credentials");
 
-  return TokenVaultService.decryptJson("gmail", account.credentials, {
+  return TokenVaultService.decryptJson(account.provider, account.credentials, {
     tenantId,
   });
 }
 
 async function refreshGoogleAccessToken(tenantId, channelAccountId) {
-  const config = getGoogleOAuthConfig();
-  const credentials = await getDecryptedGoogleCredentials(
+  const account = await ChannelAccount.findOne({
+    _id: channelAccountId,
     tenantId,
-    channelAccountId,
-  );
+    provider: { $in: ["gmail", "gmb"] },
+    deletedAt: null,
+  }).select("+credentials");
+
+  if (!account) throw ApiError.notFound("Google channel account not found");
+  if (!account.credentials) throw ApiError.badRequest("Google account has no credentials");
+
+  const credentials = TokenVaultService.decryptJson(account.provider, account.credentials, {
+    tenantId,
+  });
 
   if (!credentials.refreshToken) {
-    throw ApiError.badRequest("Gmail account has no refresh token");
+    throw ApiError.badRequest(`${account.provider === "gmb" ? "GMB" : "Gmail"} account has no refresh token`);
   }
 
+  const config = getGoogleOAuthConfig();
   const tokenData = await postGoogleToken({
     client_id: config.clientId,
     client_secret: config.clientSecret,
@@ -331,10 +374,10 @@ async function refreshGoogleAccessToken(tenantId, channelAccountId) {
   };
 
   await ChannelAccount.updateOne(
-    { _id: channelAccountId, tenantId, provider: "gmail" },
+    { _id: channelAccountId, tenantId, provider: account.provider },
     {
       $set: {
-        credentials: TokenVaultService.encryptJson("gmail", nextCredentials, {
+        credentials: TokenVaultService.encryptJson(account.provider, nextCredentials, {
           tenantId,
         }),
         scopes: nextCredentials.scopes,
@@ -352,10 +395,36 @@ async function refreshGoogleAccessToken(tenantId, channelAccountId) {
   };
 }
 
+async function getFreshAccessToken(tenantId, channelAccountId) {
+  const account = await ChannelAccount.findOne({
+    _id: channelAccountId,
+    tenantId,
+    provider: { $in: ["gmail", "gmb"] },
+    deletedAt: null,
+  }).select("+credentials");
+
+  if (!account) throw ApiError.notFound("Google channel account not found");
+  if (!account.credentials) throw ApiError.badRequest("Google account has no credentials");
+
+  const credentials = TokenVaultService.decryptJson(account.provider, account.credentials, {
+    tenantId,
+  });
+
+  const expiresAt = credentials.expiresAt ? new Date(credentials.expiresAt) : null;
+  if (credentials.accessToken && expiresAt && expiresAt.getTime() > Date.now() + 60000) {
+    return credentials.accessToken;
+  }
+
+  const refreshResult = await refreshGoogleAccessToken(tenantId, channelAccountId);
+  return refreshResult.accessToken;
+}
+
 export const GoogleOAuthService = {
   DEFAULT_GMAIL_SCOPES,
+  DEFAULT_GMB_SCOPES,
   beginGoogleOAuth,
   exchangeGoogleOAuthCode,
   getDecryptedGoogleCredentials,
   refreshGoogleAccessToken,
+  getFreshAccessToken,
 };

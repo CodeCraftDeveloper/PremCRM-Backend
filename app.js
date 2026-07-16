@@ -104,6 +104,7 @@ const devOrigins =
     : [];
 
 const allowedOrigins = [...new Set([...envOrigins, ...devOrigins])];
+console.log("ALLOWED ORIGINS:", allowedOrigins);
 
 // =====================
 // Security Middlewares
@@ -392,6 +393,7 @@ app.use("/api/v1/sessions", sessionRoutes);
 app.use("/api/v1/public", publicLeadRoutes);
 app.use("/api/v1/public", publicEventRoutes);
 app.use("/api/v1/leads", leadRoutes);
+app.use("/api/v1/clients", clientRoutes);
 app.use("/api/v1/websites", websiteRoutes);
 app.use("/api/v1/tenants", tenantRoutes);
 app.use("/api/v1/superadmin", superAdminRoutes);

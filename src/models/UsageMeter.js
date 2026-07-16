@@ -29,6 +29,7 @@ const usageMeterSchema = new mongoose.Schema(
     workflowRuns: { type: Number, default: 0 },
     aiRuns: { type: Number, default: 0 },
     aiTokens: { type: Number, default: 0 },
+    aiCostMicroUsd: { type: Number, default: 0 },
     messagesSent: { type: Number, default: 0 },
     socialPosts: { type: Number, default: 0 },
     reviewReplies: { type: Number, default: 0 },

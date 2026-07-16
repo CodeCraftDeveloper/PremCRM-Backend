@@ -10,6 +10,7 @@ import ReviewReplyDraft from "../models/ReviewReplyDraft.js";
 import PromptTemplate from "../models/PromptTemplate.js";
 import { enqueue, QUEUE_NAMES } from "../queue/index.js";
 import { ApiError } from "../utils/apiResponse.js";
+import { GoogleOAuthService } from "./googleOAuthService.js";
 import { incrementUsage } from "./usageMeterService.js";
 import { AIProviderClient } from "./ai/aiProviderClient.js";
 
@@ -56,14 +57,138 @@ async function upsertLocation({ tenantId, payload }) {
         title: String(payload.title || payload.locationName).trim(),
         status: payload.status || "active",
         verificationStatus: payload.verificationStatus || "unknown",
+        storeCode: payload.storeCode || null,
+        primaryPhone: payload.primaryPhone || null,
+        websiteUri: payload.websiteUri || null,
         address: payload.address || {},
+        latLng: payload.latLng || {},
         categories: Array.isArray(payload.categories) ? payload.categories : [],
         providerMeta: payload.providerMeta || {},
         deletedAt: null,
       },
     },
-    { new: true, upsert: true, setDefaultsOnInsert: true, runValidators: true },
+    { returnDocument: "after", upsert: true, setDefaultsOnInsert: true, runValidators: true },
   ).lean();
+}
+
+async function syncLocationsFromProvider({ tenantId, channelAccountId }) {
+  try {
+    const accessToken = await GoogleOAuthService.getFreshAccessToken(tenantId, channelAccountId);
+
+    const accountsRes = await fetch("https://mybusinessaccountmanagement.googleapis.com/v1/accounts", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (!accountsRes.ok) {
+      const errBody = await accountsRes.json().catch(() => ({}));
+      throw new Error(errBody.error?.message || `Failed to fetch GMB accounts (HTTP ${accountsRes.status})`);
+    }
+
+    const accountsData = await accountsRes.json();
+    const accounts = accountsData.accounts || [];
+
+    const syncedLocations = [];
+
+    for (const account of accounts) {
+      const accountName = account.name;
+      const locationsUrl = `https://mybusinessbusinessinformation.googleapis.com/v1/${accountName}/locations?readMask=name,title,storeCode,primaryPhone,websiteUri,storefrontAddress,latlng,categories,metadata,locationState`;
+
+      const locationsRes = await fetch(locationsUrl, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      if (!locationsRes.ok) {
+        const errBody = await locationsRes.json().catch(() => ({}));
+        throw new Error(errBody.error?.message || `Failed to fetch GMB locations for ${accountName} (HTTP ${locationsRes.status})`);
+      }
+
+      const locationsData = await locationsRes.json();
+      const locationsList = locationsData.locations || [];
+
+      for (const loc of locationsList) {
+        const cats = [];
+        if (loc.categories?.primaryCategory?.displayName) {
+          cats.push(loc.categories.primaryCategory.displayName);
+        }
+        if (Array.isArray(loc.categories?.additionalCategories)) {
+          for (const additional of loc.categories.additionalCategories) {
+            if (additional.displayName) {
+              cats.push(additional.displayName);
+            }
+          }
+        }
+
+        let status = "active";
+        let verificationStatus = "unknown";
+
+        if (loc.locationState) {
+          if (loc.locationState.isSuspended) status = "suspended";
+          else if (loc.locationState.isDisabled) status = "disabled";
+          else if (loc.locationState.isDisconnected) status = "disconnected";
+          else if (loc.locationState.isPendingReview) status = "pending";
+
+          if (loc.locationState.isVerified) verificationStatus = "verified";
+          else if (loc.locationState.isPendingReview) verificationStatus = "pending";
+          else verificationStatus = "unverified";
+        }
+
+        const payload = {
+          channelAccountId,
+          providerLocationId: loc.name,
+          providerAccountId: accountName,
+          title: loc.title || "Untitled Location",
+          status,
+          verificationStatus,
+          storeCode: loc.storeCode || null,
+          primaryPhone: loc.primaryPhone || null,
+          websiteUri: loc.websiteUri || null,
+          address: {
+            addressLines: loc.storefrontAddress?.addressLines || [],
+            locality: loc.storefrontAddress?.locality || null,
+            administrativeArea: loc.storefrontAddress?.administrativeArea || null,
+            postalCode: loc.storefrontAddress?.postalCode || null,
+            regionCode: loc.storefrontAddress?.regionCode || null,
+            languageCode: loc.storefrontAddress?.languageCode || null,
+          },
+          latLng: {
+            latitude: loc.latlng?.latitude || null,
+            longitude: loc.latlng?.longitude || null,
+          },
+          categories: cats,
+          providerMeta: loc,
+        };
+
+        const upserted = await upsertLocation({ tenantId, payload });
+        syncedLocations.push(upserted);
+      }
+    }
+
+    await ChannelAccount.updateOne(
+      { _id: channelAccountId, tenantId },
+      {
+        $set: {
+          status: "connected",
+          lastError: null,
+          consecutiveErrors: 0,
+          lastSyncAt: new Date(),
+        },
+      }
+    );
+
+    return syncedLocations;
+  } catch (error) {
+    await ChannelAccount.updateOne(
+      { _id: channelAccountId, tenantId },
+      {
+        $set: {
+          status: "error",
+          lastError: error.message,
+        },
+        $inc: { consecutiveErrors: 1 },
+      }
+    );
+    throw error;
+  }
 }
 
 async function listLocations({ tenantId }) {
@@ -76,11 +201,46 @@ async function listLocations({ tenantId }) {
 async function syncReviews({ tenantId, locationId, reviews = [], syncCursor = null }) {
   const location = await GmbLocation.findOne({ _id: locationId, tenantId, deletedAt: null });
   if (!location) throw ApiError.notFound("GMB location not found");
-  if (!Array.isArray(reviews)) throw ApiError.badRequest("reviews must be an array");
+
+  let fetchedReviews = reviews;
+  let nextCursor = syncCursor;
+
+  if (!reviews || reviews.length === 0) {
+    try {
+      const accessToken = await GoogleOAuthService.getFreshAccessToken(tenantId, location.channelAccountId);
+      const url = new URL(`https://mybusiness.googleapis.com/v4/${location.providerLocationId}/reviews`);
+      if (location.syncCursor) {
+        url.searchParams.set("pageToken", location.syncCursor);
+      }
+
+      const res = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error?.message || `Failed to fetch GMB reviews (HTTP ${res.status})`);
+      }
+
+      const data = await res.json();
+      fetchedReviews = data.reviews || [];
+      nextCursor = data.nextPageToken || null;
+
+      location.consecutiveErrors = 0;
+      location.lastError = null;
+    } catch (err) {
+      location.consecutiveErrors = (location.consecutiveErrors || 0) + 1;
+      location.lastError = err.message;
+      await location.save();
+      throw err;
+    }
+  } else {
+    if (!Array.isArray(reviews)) throw ApiError.badRequest("reviews must be an array");
+  }
 
   let inserted = 0;
   let updated = 0;
-  for (const raw of reviews) {
+  for (const raw of fetchedReviews) {
     const providerReviewId = raw.providerReviewId || raw.reviewId || raw.name;
     if (!providerReviewId) throw ApiError.badRequest("Each review requires providerReviewId");
     const starRating = star(raw.starRating || raw.rating);
@@ -107,12 +267,13 @@ async function syncReviews({ tenantId, locationId, reviews = [], syncCursor = nu
           },
         },
       },
-      { upsert: true, new: true, runValidators: true },
+      { upsert: true, returnDocument: "after", runValidators: true },
     );
     if (existed) updated += 1;
     else inserted += 1;
   }
-  location.syncCursor = syncCursor || location.syncCursor || null;
+
+  location.syncCursor = nextCursor || null;
   location.lastReviewSyncedAt = new Date();
   await location.save();
   return { upserted: inserted + updated, inserted, updated, location: location.toObject() };
@@ -166,7 +327,7 @@ async function generateReplyDraft({ tenantId, reviewId, triggeredBy = null, idem
     triggeredBy,
     startedAt: new Date(),
   });
-  const providerResult = await AIProviderClient.getProvider().generate({
+  const providerResult = await AIProviderClient.getProvider(template.modelProvider).generate({
     system: template.systemPrompt || "",
     user: template.userPromptTemplate || "",
     input: { brand_profile: brand, gmb_review: { rating: review.rating, comment: review.comment }, channel: "gmb" },
@@ -266,20 +427,90 @@ async function rejectReply({ tenantId, approvalRequestId, decisionReason }) {
 async function publishApprovedReply({ tenantId, replyDraftId }) {
   const replyDraft = await ReviewReplyDraft.findOne({ _id: replyDraftId, tenantId });
   if (!replyDraft) throw new GmbReviewPermanentError("Review reply draft not found");
-  if (replyDraft.status === "published") return { skipped: true, replyDraftId: String(replyDraft._id), publishedAt: replyDraft.publishedAt };
-  if (!["approved", "publishing"].includes(replyDraft.status)) throw new GmbReviewPermanentError(`Cannot publish GMB reply in status "${replyDraft.status}"`);
+  if (replyDraft.status === "published") {
+    return { skipped: true, replyDraftId: String(replyDraft._id), publishedAt: replyDraft.publishedAt };
+  }
+  if (!["approved", "publishing"].includes(replyDraft.status)) {
+    throw new GmbReviewPermanentError(`Cannot publish GMB reply in status "${replyDraft.status}"`);
+  }
+
+  const review = await Review.findOne({ _id: replyDraft.reviewId, tenantId });
+  if (!review) throw new GmbReviewPermanentError("Associated review not found");
+
+  const accessToken = await GoogleOAuthService.getFreshAccessToken(tenantId, replyDraft.channelAccountId);
+
+  let reviewName = review.providerReviewId;
+  if (!reviewName.startsWith("accounts/")) {
+    const location = await GmbLocation.findOne({ _id: review.gmbLocationId, tenantId });
+    if (!location) throw new GmbReviewPermanentError("Associated location not found");
+    reviewName = `${location.providerLocationId}/reviews/${review.providerReviewId}`;
+  }
+
+  const url = `https://mybusiness.googleapis.com/v4/${reviewName}/reply`;
+  const response = await fetch(url, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ comment: replyDraft.body }),
+  });
+
+  if (!response.ok) {
+    const errBody = await response.json().catch(() => ({}));
+    const errMsg = errBody.error?.message || `Failed to publish reply (HTTP ${response.status})`;
+    if (response.status === 429 || response.status >= 500) {
+      throw new Error(errMsg);
+    } else {
+      throw new GmbReviewPermanentError(errMsg);
+    }
+  }
+
+  const data = await response.json();
   const publishedAt = new Date();
-  Object.assign(replyDraft, { status: "published", publishedAt, providerUpdateTime: publishedAt, providerReplyId: `stub:gmb:${replyDraft.reviewId}:reply` });
+  const providerReplyId = data.name || `gmb:${replyDraft.reviewId}:reply`;
+  const providerUpdateTime = data.updateTime ? new Date(data.updateTime) : publishedAt;
+
+  Object.assign(replyDraft, {
+    status: "published",
+    publishedAt,
+    providerUpdateTime,
+    providerReplyId,
+  });
   await replyDraft.save();
-  await Review.updateOne({ _id: replyDraft.reviewId, tenantId }, { $set: { status: "replied", providerReply: { comment: replyDraft.body, updateTime: publishedAt } } });
-  await ContentDraft.updateOne({ _id: replyDraft.contentDraftId, tenantId }, { $set: { status: "published", publishedAt } });
+
+  await Review.updateOne(
+    { _id: replyDraft.reviewId, tenantId },
+    {
+      $set: {
+        status: "replied",
+        providerReply: {
+          comment: replyDraft.body,
+          updateTime: providerUpdateTime,
+        },
+      },
+    },
+  );
+
+  await ContentDraft.updateOne(
+    { _id: replyDraft.contentDraftId, tenantId },
+    { $set: { status: "published", publishedAt } },
+  );
+
   await incrementUsage(tenantId, "reviewReplies", 1);
-  return { skipped: false, replyDraftId: String(replyDraft._id), providerReplyId: replyDraft.providerReplyId, publishedAt };
+
+  return {
+    skipped: false,
+    replyDraftId: String(replyDraft._id),
+    providerReplyId,
+    publishedAt,
+  };
 }
 
 export const GmbReviewReplyService = {
   REVIEW_PUBLISH_JOB,
   upsertLocation,
+  syncLocationsFromProvider,
   listLocations,
   syncReviews,
   listReviews,

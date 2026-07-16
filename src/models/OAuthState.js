@@ -21,6 +21,12 @@ const oauthStateSchema = new mongoose.Schema(
       enum: OAUTH_STATE_PROVIDERS,
       required: true,
     },
+    targetProvider: {
+      type: String,
+      enum: ["gmail", "gmb"],
+      default: "gmail",
+      required: true,
+    },
     stateHash: {
       type: String,
       required: true,

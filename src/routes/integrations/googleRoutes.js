@@ -15,7 +15,6 @@ import {
 const router = express.Router();
 
 router.use(protect);
-router.use(requirePlanFeature("gmailIntegration"));
 
 router.get(
   "/oauth/start",
@@ -37,12 +36,14 @@ router.post(
   "/accounts/:id/watch/start",
   authorize("admin", "superadmin"),
   validateMongoId(),
+  requirePlanFeature("gmailIntegration"),
   startGmailWatch,
 );
 router.post(
   "/accounts/:id/watch/stop",
   authorize("admin", "superadmin"),
   validateMongoId(),
+  requirePlanFeature("gmailIntegration"),
   stopGmailWatch,
 );
 
